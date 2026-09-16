@@ -1,0 +1,30 @@
+Tutorial wie man sich via FTP zum Host verbindet.
+
+v. Luka
+---
+
+Step 1)
+
+In BASH oder PS:
+
+$ ftp 138.199.221.113
+
+Step 2)
+
+Benutzernae eingeben:
+
+lehrway.bbzwinf.ch_yas9brp2x7o
+
+Step 3)
+
+Passwort eingeben
+
+<passwort> ==> Bei Luka Nachfragen
+
+Step 4)
+
+Mit Host Verbunden, jetzt kann man die verschiedenen Befehle eingeben.
+
+---
+
+Hilfe = ?

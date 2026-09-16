@@ -1,41 +1,55 @@
+DROP DATABASE IF EXISTS lehrway;
 CREATE DATABASE lehrway;
 USE lehrway;
 
+DROP TABLE IF EXISTS lehrgang;
 CREATE TABLE lehrgang (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    bezeichnung VARCHAR(255) UNIQUE,
+    bezeichnung VARCHAR(255),
     semesteranzahl INT
 );
 
+DROP TABLE IF EXISTS lehrgang_modul;
+CREATE TABLE lehrgang_modul (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bezeichnung VARCHAR(50),
+    lehrjahr INT,
+    semester INT,
+    quartal INT,
+    lektionen INT,
+    lehrgang_id INT,
+    FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id)
+);
+
+DROP TABLE IF EXISTS klasse;
 CREATE TABLE klasse (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bezeichnung VARCHAR(50) UNIQUE,
-    notizen TEXT,
-    semester VARCHAR(50),
-    anzahl_schultage_woche INT,
     lehrgang_id INT,
+    notizen TEXT,
+    anzahl_schultage_woche INT,
     FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id)
 );
 
-CREATE TABLE klasse_wochentag (
+DROP TABLE IF EXISTS klasse_modul;
+CREATE TABLE klasse_modul (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bezeichnung VARCHAR(50),
+    lehrjahr INT,
+    semester INT,
+    quartal INT,
+    lektionen INT,
     klasse_id INT,
-    wochentag VARCHAR(20),
     FOREIGN KEY (klasse_id) REFERENCES klasse(id)
 );
 
-CREATE TABLE modul (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    bezeichnung VARCHAR(50),
-    semester INT,
-    lehrgang_id INT,
-    FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id)
-);
-
+DROP TABLE IF EXISTS label;
 CREATE TABLE label (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(50) UNIQUE
 );
 
+DROP TABLE IF EXISTS klasse_label;
 CREATE TABLE klasse_label (
     klasse_id INT,
     label_id INT,
@@ -43,13 +57,7 @@ CREATE TABLE klasse_label (
     FOREIGN KEY (label_id) REFERENCES label(id)
 );
 
-CREATE TABLE schultag (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    klasse_id INT,
-    datum DATE,
-    FOREIGN KEY (klasse_id) REFERENCES klasse(id)
-);
-
+DROP TABLE IF EXISTS regel;
 CREATE TABLE regel (
     id INT AUTO_INCREMENT PRIMARY KEY,
     klasse_a_id INT,
@@ -60,11 +68,22 @@ CREATE TABLE regel (
     CHECK (klasse_a_id != klasse_b_id)
 );
 
-CREATE TABLE einstellung (
+DROP TABLE IF EXISTS ressourcen;
+CREATE TABLE ressourcen (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    wochentag VARCHAR(20),
     anzahl_raeume INT
 );
 
+DROP TABLE IF EXISTS klasse_ressource;
+CREATE TABLE klasse_ressource (
+    klasse_id INT,
+    ressourcen_id INT,
+    FOREIGN KEY (klasse_id) REFERENCES klasse(id),
+    FOREIGN KEY (ressourcen_id) REFERENCES ressourcen(id)
+);
+
+DROP TABLE IF EXISTS user;
 CREATE TABLE user (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) UNIQUE,
@@ -73,6 +92,7 @@ CREATE TABLE user (
     zuletzt_aktiv TIMESTAMP
 );
 
+DROP TABLE IF EXISTS log;
 CREATE TABLE log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lehrgang_id INT,

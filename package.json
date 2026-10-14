@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/NoelWenger/LehrWay_Backend#readme",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "mariadb": "^3.5.4"

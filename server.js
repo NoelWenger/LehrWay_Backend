@@ -49,8 +49,8 @@ app.post('/api/register', async(req, res) => {
 });
 
 // Routen für Lehrgang und Homepage oder so
-const homepageRoutes = require('./routes/homepage')
-const lehrgangRoutes = require('./routes/lehrgang')
+import homepageRoutes from './routes/homepage.js'
+import lehrgangRoutes from './routes/lehrgang.js'
 
 app.use('/api', homepageRoutes)
 app.use('/api', lehrgangRoutes)

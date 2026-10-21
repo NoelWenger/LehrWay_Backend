@@ -1,38 +1,50 @@
 import express from 'express';
 import cors from 'cors';
-import { testConnection } from './db.js';
+import bcrypt from 'bcrypt';
+import pool, { testConnection } from './db.js';
 
 const app = express();
 const PORT = 3000;
-const TEST_USER = {
-    email: "test@lehrway.com",
-    password: "FCS"
-};
 
 testConnection();
 
 app.use(cors());
 app.use(express.json());
 
-app.post('/api/login', (req, res) => {
+app.post('/api/register', async(req, res) => {
     const { email, password } = req.body;
 
-    console.log("Login-Versuch mit:", email, password);
-
-    if (email === TEST_USER.email && password === TEST_USER.password)
-    {
-        res.json({
-            success: true,
-            message: "Login erfolgreich!",
-            user: { email: email }
-        });
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: "Bitte alle Felder ausfüllen!" });
     }
-    else
-    {
-        res.status(401).json({
-            success: false,
-            message: "Falsche E-Mail oder falsches Passwort!"
-        });
+
+    let Connection;
+    try {
+        Connection = await pool.getConnection();
+
+        // 1. Prüfen, ob die E-Mail schon existiert
+        const existingUsers = await Connection.query("SELECT * FROM user WHERE email = ?", [email]);
+        if (existingUsers.length > 0) {
+            return res.status(400).json({ success: false, message: "Diese E-Mail ist bereits registriert!" });
+        }
+
+        const saltRounds = 10;
+        const passwortHash = await bcrypt.hash(password, saltRounds);
+        const username = email.split('@')[0];
+
+        await Connection.query(
+            "INSERT INTO user (username, email, passwort_hash, zuletzt_aktiv) VALUES (?, ?, ?, NOW())",
+            [username, email, passwortHash]
+        );
+
+        console.log(`Benutzer erfolgreich in MariaDB gespeichert: ${email}`);
+        res.json({ success: true, message: "Registrierung erfolgreich!" });
+
+    } catch (err) {
+        console.error("Fehler bei der Registrierung:", err);
+        res.status(500).json({ success: false, message: "Server-Fehler bei der Registrierung!" });
+    } finally {
+        if (Connection) Connection.release(); // Leitung immer zurück in den Pool!
     }
 });
 

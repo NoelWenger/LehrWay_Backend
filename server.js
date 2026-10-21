@@ -48,6 +48,14 @@ app.post('/api/register', async(req, res) => {
     }
 });
 
+// Routen für Lehrgang und Homepage oder so
+const homepageRoutes = require('./routes/homepage')
+const lehrgangRoutes = require('./routes/lehrgang')
+
+app.use('/api', homepageRoutes)
+app.use('/api', lehrgangRoutes)
+
+
 app.listen(PORT, () => {
     console.log(`Server läuft auf http://localhost:${PORT}`);
 });

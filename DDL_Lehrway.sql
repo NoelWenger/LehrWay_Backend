@@ -41,6 +41,9 @@ CREATE TABLE klasse_modul (
     FOREIGN KEY (klasse_id) REFERENCES klasse(id)
 );
 
+ALTER TABLE lehrgang_modul
+ADD COLUMN quartal_span INT NOT NULL DEFAULT 1;
+
 DROP TABLE IF EXISTS label;
 CREATE TABLE label (
     id INT AUTO_INCREMENT PRIMARY KEY,

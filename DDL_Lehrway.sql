@@ -1,6 +1,4 @@
-DROP DATABASE IF EXISTS lehrway;
-CREATE DATABASE lehrway;
-USE lehrway;
+USE Lehrway_bothinchat;
 
 DROP TABLE IF EXISTS lehrgang;
 CREATE TABLE lehrgang (

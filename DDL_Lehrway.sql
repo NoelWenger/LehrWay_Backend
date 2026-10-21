@@ -1,4 +1,4 @@
-USE Lehrway_bothinchat;
+USE lehrway;
 
 DROP TABLE IF EXISTS lehrgang;
 CREATE TABLE lehrgang (

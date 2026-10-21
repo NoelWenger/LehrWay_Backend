@@ -1,7 +1,7 @@
 import express from 'express'
 
 const router = express.Router()
-const db = require('../db')
+import db from '../db.js'
 
 // Klassen aus MariaDB laden
 router.get('/klassen', async (req, res) => {

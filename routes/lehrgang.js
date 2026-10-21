@@ -1,7 +1,7 @@
 import express from 'express'
 
 const router = express.Router()
-const db = require('../db')
+import db from '../db.js'
 
 // Alle Lehrgänge laden
 router.get('/lehrgaenge', async (req, res) => {

@@ -22,7 +22,6 @@ app.post('/api/register', async(req, res) => {
     try {
         Connection = await pool.getConnection();
 
-        // 1. Prüfen, ob die E-Mail schon existiert
         const existingUsers = await Connection.query("SELECT * FROM user WHERE email = ?", [email]);
         if (existingUsers.length > 0) {
             return res.status(400).json({ success: false, message: "Diese E-Mail ist bereits registriert!" });
@@ -44,11 +43,52 @@ app.post('/api/register', async(req, res) => {
         console.error("Fehler bei der Registrierung:", err);
         res.status(500).json({ success: false, message: "Server-Fehler bei der Registrierung!" });
     } finally {
-        if (Connection) Connection.release(); // Leitung immer zurück in den Pool!
+        if (Connection) Connection.release();
     }
 });
 
-// Routen für Lehrgang und Homepage oder so
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ success: false, message: "Bitte alle Felder ausfüllen!" });
+    }
+
+    let Connection;
+    try {
+        Connection = await pool.getConnection();
+
+        const users = await Connection.query("SELECT * FROM user WHERE email = ?", [email]);
+
+        if (users.length === 0) {
+            return res.status(401).json({ success: false, message: "Benutzer nicht gefunden!" });
+        }
+
+        const user = users[0];
+
+        const isMatch = await bcrypt.compare(password, user.passwort_hash);
+
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: "Falsches Passwort!" });
+        }
+
+        await Connection.query("UPDATE user SET zuletzt_aktiv = NOW() WHERE id = ?", [user.id]);
+
+        console.log(`Erfolgreicher Login für: ${email}`);
+        res.json({
+            success: true,
+            message: "Login erfolgreich!",
+            user: { id: user.id, username: user.username, email: user.email }
+        });
+
+    } catch (err) {
+        console.error("Fehler beim Login:", err);
+        res.status(500).json({ success: false, message: "Server-Fehler beim Login!" });
+    } finally {
+        if (Connection) Connection.release();
+    }
+});
+
 import homepageRoutes from './routes/homepage.js'
 import lehrgangRoutes from './routes/lehrgang.js'
 

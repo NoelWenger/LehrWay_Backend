@@ -10,6 +10,7 @@ const pool = mariadb.createPool({
     connectionLimit: 5
 });
 
+
 export async function testConnection() {
     let Connection;
     try {
@@ -21,5 +22,6 @@ export async function testConnection() {
         if (Connection) Connection.release();
     }
 }
+
 
 export default pool;

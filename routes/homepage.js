@@ -515,5 +515,106 @@ router.delete('/regeln/:id', route(async (req, res) => {
 
     res.json({ success: true })
 }))
+// --------------------------------------------------
+// Labels einer Klasse
+// --------------------------------------------------
 
+// Alle Label-Zuordnungen mit ihrem Namen laden.
+router.get('/klasse-labels', route(async (_req, res) => {
+    const rows = await pool.query(
+        `SELECT DISTINCT
+       kl.klasse_id,
+       l.id AS label_id,
+       l.name
+     FROM klasse_label kl
+     INNER JOIN label l ON l.id = kl.label_id
+     ORDER BY l.name`,
+    )
+
+    sendJson(res, rows)
+}))
+
+// Label anhand seines Namens einer Klasse zuordnen.
+// Bereits vorhandene Labels werden wiederverwendet.
+router.post('/klassen/:id/labels', route(async (req, res) => {
+    const classId = validId(req.params.id, 'Klassen-ID')
+    const name = typeof req.body?.name === 'string'
+        ? req.body.name.trim()
+        : ''
+
+    if (!name || Array.from(name).length > 50) {
+        fail(400, 'Bitte ein Label mit 1 bis 50 Zeichen eingeben.')
+    }
+
+    const assignment = await transaction(async (connection) => {
+        await requireClass(connection, classId)
+
+        // label.name besitzt laut deinem DDL einen UNIQUE-Schlüssel.
+        // Bei einem vorhandenen Namen bleibt der Datensatz erhalten.
+        await connection.query(
+            `INSERT INTO label (name)
+       VALUES (?)
+       ON DUPLICATE KEY UPDATE id = id`,
+            [name],
+        )
+
+        const labels = await connection.query(
+            'SELECT id, name FROM label WHERE name = ?',
+            [name],
+        )
+
+        const label = labels[0]
+
+        if (!label) {
+            fail(500, 'Das Label konnte nicht geladen werden.')
+        }
+
+        const existing = await connection.query(
+            `SELECT klasse_id
+       FROM klasse_label
+       WHERE klasse_id = ? AND label_id = ?
+       FOR UPDATE`,
+            [classId, label.id],
+        )
+
+        // Wiederholtes Hinzufügen erzeugt keine doppelte Zuordnung.
+        if (existing.length === 0) {
+            await connection.query(
+                `INSERT INTO klasse_label (klasse_id, label_id)
+         VALUES (?, ?)`,
+                [classId, label.id],
+            )
+        }
+
+        return {
+            klasse_id: classId,
+            label_id: label.id,
+            name: label.name,
+        }
+    })
+
+    sendJson(res, assignment)
+}))
+
+// Entfernt das Label nur von dieser Klasse.
+// Andere Klassen behalten dasselbe Label.
+router.delete(
+    '/klassen/:id/labels/:labelId',
+    route(async (req, res) => {
+        const classId = validId(req.params.id, 'Klassen-ID')
+        const labelId = validId(req.params.labelId, 'Label-ID')
+
+        await transaction(async (connection) => {
+            await requireClass(connection, classId)
+
+            await connection.query(
+                `DELETE FROM klasse_label
+         WHERE klasse_id = ? AND label_id = ?`,
+                [classId, labelId],
+            )
+        })
+
+        res.json({ success: true })
+    }),
+)
 export default router

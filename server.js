@@ -11,9 +11,7 @@ testConnection();
 
 app.use(cors());
 app.use(express.json());
-app.get('/api/version', (_req, res) => {
-    res.json({ version: 'homepage-mit-ressourcen-v1' })
-})
+
 
 app.post('/api/register', async(req, res) => {
     const { email, password } = req.body;

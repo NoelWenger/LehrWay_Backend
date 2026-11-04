@@ -69,6 +69,7 @@ CREATE TABLE label (
 CREATE TABLE klasse_label (
     klasse_id INT,
     label_id INT,
+    farbe VARCHAR(7) NOT NULL DEFAULT '#0d6efd',
     FOREIGN KEY (klasse_id) REFERENCES klasse(id),
     FOREIGN KEY (label_id) REFERENCES label(id)
 );

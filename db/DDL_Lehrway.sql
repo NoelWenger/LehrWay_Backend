@@ -63,6 +63,7 @@ CREATE TABLE klasse_modul (
 
 CREATE TABLE label (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    farbe VARCHAR(7) NOT NULL DEFAULT '#0d6efd',
     name VARCHAR(50) UNIQUE
 );
 

@@ -516,41 +516,56 @@ router.delete('/regeln/:id', route(async (req, res) => {
     res.json({ success: true })
 }))
 // --------------------------------------------------
-// Labels einer Klasse
+// Labels einer Klasse mit eigener Farbe
 // --------------------------------------------------
 
-// Alle Label-Zuordnungen mit ihrem Namen laden.
+function validLabelColor(value) {
+    if (
+        typeof value !== 'string' ||
+        !/^#[0-9a-fA-F]{6}$/.test(value)
+    ) {
+        fail(400, 'Bitte eine gültige Farbe auswählen.')
+    }
+
+    return value.toLowerCase()
+}
+
+// Alle Label-Zuordnungen inklusive Farbe laden.
 router.get('/klasse-labels', route(async (_req, res) => {
     const rows = await pool.query(
         `SELECT DISTINCT
-       kl.klasse_id,
-       l.id AS label_id,
-       l.name
-     FROM klasse_label kl
-     INNER JOIN label l ON l.id = kl.label_id
-     ORDER BY l.name`,
+             kl.klasse_id,
+             l.id AS label_id,
+             l.name,
+             kl.farbe
+         FROM klasse_label kl
+                  INNER JOIN label l ON l.id = kl.label_id
+         ORDER BY l.name`,
     )
 
     sendJson(res, rows)
 }))
 
-// Label anhand seines Namens einer Klasse zuordnen.
-// Bereits vorhandene Labels werden wiederverwendet.
+// Label erstellen beziehungsweise wiederverwenden
+// und der Klasse mit ihrer gewählten Farbe zuordnen.
 router.post('/klassen/:id/labels', route(async (req, res) => {
     const classId = validId(req.params.id, 'Klassen-ID')
+
     const name = typeof req.body?.name === 'string'
         ? req.body.name.trim()
         : ''
+
+    const color = validLabelColor(
+        req.body?.farbe ?? '#0d6efd',
+    )
 
     if (!name || Array.from(name).length > 50) {
         fail(400, 'Bitte ein Label mit 1 bis 50 Zeichen eingeben.')
     }
 
-    const assignment = await transaction(async (connection) => {
+    const assignment = await transaction(async connection => {
         await requireClass(connection, classId)
 
-        // label.name besitzt laut deinem DDL einen UNIQUE-Schlüssel.
-        // Bei einem vorhandenen Namen bleibt der Datensatz erhalten.
         await connection.query(
             `INSERT INTO label (name)
        VALUES (?)
@@ -577,12 +592,19 @@ router.post('/klassen/:id/labels', route(async (req, res) => {
             [classId, label.id],
         )
 
-        // Wiederholtes Hinzufügen erzeugt keine doppelte Zuordnung.
         if (existing.length === 0) {
             await connection.query(
-                `INSERT INTO klasse_label (klasse_id, label_id)
-         VALUES (?, ?)`,
-                [classId, label.id],
+                `INSERT INTO klasse_label
+                     (klasse_id, label_id, farbe)
+                 VALUES (?, ?, ?)`,
+                [classId, label.id, color],
+            )
+        } else {
+            await connection.query(
+                `UPDATE klasse_label
+         SET farbe = ?
+         WHERE klasse_id = ? AND label_id = ?`,
+                [color, classId, label.id],
             )
         }
 
@@ -590,26 +612,65 @@ router.post('/klassen/:id/labels', route(async (req, res) => {
             klasse_id: classId,
             label_id: label.id,
             name: label.name,
+            farbe: color,
         }
     })
 
     sendJson(res, assignment)
 }))
 
-// Entfernt das Label nur von dieser Klasse.
-// Andere Klassen behalten dasselbe Label.
+// Farbe einer bestehenden Zuordnung ändern.
+router.patch(
+    '/klassen/:id/labels/:labelId/farbe',
+    route(async (req, res) => {
+        const classId = validId(req.params.id, 'Klassen-ID')
+        const labelId = validId(req.params.labelId, 'Label-ID')
+        const color = validLabelColor(req.body?.farbe)
+
+        await transaction(async connection => {
+            await requireClass(connection, classId)
+
+            const existing = await connection.query(
+                `SELECT klasse_id
+         FROM klasse_label
+         WHERE klasse_id = ? AND label_id = ?
+         FOR UPDATE`,
+                [classId, labelId],
+            )
+
+            if (existing.length === 0) {
+                fail(404, 'Dieses Label ist der Klasse nicht zugeordnet.')
+            }
+
+            await connection.query(
+                `UPDATE klasse_label
+         SET farbe = ?
+         WHERE klasse_id = ? AND label_id = ?`,
+                [color, classId, labelId],
+            )
+        })
+
+        res.json({
+            klasse_id: classId,
+            label_id: labelId,
+            farbe: color,
+        })
+    }),
+)
+
+// Label nur von dieser Klasse entfernen.
 router.delete(
     '/klassen/:id/labels/:labelId',
     route(async (req, res) => {
         const classId = validId(req.params.id, 'Klassen-ID')
         const labelId = validId(req.params.labelId, 'Label-ID')
 
-        await transaction(async (connection) => {
+        await transaction(async connection => {
             await requireClass(connection, classId)
 
             await connection.query(
                 `DELETE FROM klasse_label
-         WHERE klasse_id = ? AND label_id = ?`,
+                 WHERE klasse_id = ? AND label_id = ?`,
                 [classId, labelId],
             )
         })
@@ -617,6 +678,7 @@ router.delete(
         res.json({ success: true })
     }),
 )
+
 export default router
 
 

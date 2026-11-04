@@ -11,7 +11,7 @@ testConnection();
 
 app.use(cors());
 app.use(express.json());
-app.use('/api', homepageRoutes)
+
 
 app.post('/api/register', async(req, res) => {
     const { email, password } = req.body;

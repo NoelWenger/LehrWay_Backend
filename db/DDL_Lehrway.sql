@@ -1,13 +1,31 @@
+
 USE lehrway;
 
+DROP TABLE IF EXISTS log;
+DROP TABLE IF EXISTS klasse_ressource;
+DROP TABLE IF EXISTS regel;
+DROP TABLE IF EXISTS klasse_label;
+DROP TABLE IF EXISTS klasse_modul;
+DROP TABLE IF EXISTS ressourcen;
+DROP TABLE IF EXISTS klasse;
+DROP TABLE IF EXISTS label;
+DROP TABLE IF EXISTS lehrgang_modul;
+DROP TABLE IF EXISTS user;
+DROP TABLE IF EXISTS schuljahr;
 DROP TABLE IF EXISTS lehrgang;
+
 CREATE TABLE lehrgang (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bezeichnung VARCHAR(255),
     semesteranzahl INT
 );
 
-DROP TABLE IF EXISTS lehrgang_modul;
+CREATE TABLE schuljahr (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    start_jahr INT NOT NULL UNIQUE,
+    bezeichnung VARCHAR(20) NOT NULL
+);
+
 CREATE TABLE lehrgang_modul (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bezeichnung VARCHAR(50),
@@ -16,20 +34,22 @@ CREATE TABLE lehrgang_modul (
     quartal INT,
     lektionen INT,
     lehrgang_id INT,
+    quartal_span INT NOT NULL DEFAULT 1,
     FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id)
 );
 
-DROP TABLE IF EXISTS klasse;
 CREATE TABLE klasse (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    bezeichnung VARCHAR(50) UNIQUE,
+    bezeichnung VARCHAR(50),
     lehrgang_id INT,
     notizen TEXT,
     anzahl_schultage_woche INT,
-    FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id)
+    schuljahr_id INT NOT NULL,
+    FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id),
+    FOREIGN KEY (schuljahr_id) REFERENCES schuljahr(id),
+    UNIQUE (bezeichnung, schuljahr_id)
 );
 
-DROP TABLE IF EXISTS klasse_modul;
 CREATE TABLE klasse_modul (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bezeichnung VARCHAR(50),
@@ -41,16 +61,11 @@ CREATE TABLE klasse_modul (
     FOREIGN KEY (klasse_id) REFERENCES klasse(id)
 );
 
-ALTER TABLE lehrgang_modul
-ADD COLUMN quartal_span INT NOT NULL DEFAULT 1;
-
-DROP TABLE IF EXISTS label;
 CREATE TABLE label (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(50) UNIQUE
 );
 
-DROP TABLE IF EXISTS klasse_label;
 CREATE TABLE klasse_label (
     klasse_id INT,
     label_id INT,
@@ -58,7 +73,6 @@ CREATE TABLE klasse_label (
     FOREIGN KEY (label_id) REFERENCES label(id)
 );
 
-DROP TABLE IF EXISTS regel;
 CREATE TABLE regel (
     id INT AUTO_INCREMENT PRIMARY KEY,
     klasse_a_id INT,
@@ -69,14 +83,14 @@ CREATE TABLE regel (
     CHECK (klasse_a_id != klasse_b_id)
 );
 
-DROP TABLE IF EXISTS ressourcen;
 CREATE TABLE ressourcen (
     id INT AUTO_INCREMENT PRIMARY KEY,
     wochentag VARCHAR(20),
-    anzahl_raeume INT
+    anzahl_raeume INT,
+    schuljahr_id INT NOT NULL,
+    FOREIGN KEY (schuljahr_id) REFERENCES schuljahr(id)
 );
 
-DROP TABLE IF EXISTS klasse_ressource;
 CREATE TABLE klasse_ressource (
     klasse_id INT,
     ressourcen_id INT,
@@ -84,7 +98,6 @@ CREATE TABLE klasse_ressource (
     FOREIGN KEY (ressourcen_id) REFERENCES ressourcen(id)
 );
 
-DROP TABLE IF EXISTS user;
 CREATE TABLE user (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) UNIQUE,
@@ -93,7 +106,6 @@ CREATE TABLE user (
     zuletzt_aktiv TIMESTAMP
 );
 
-DROP TABLE IF EXISTS log;
 CREATE TABLE log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lehrgang_id INT,
@@ -103,3 +115,6 @@ CREATE TABLE log (
     FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id),
     FOREIGN KEY (user_id) REFERENCES user(id)
 );
+
+INSERT INTO schuljahr (start_jahr, bezeichnung)
+VALUES (2026, '2026/27');

@@ -263,5 +263,171 @@ router.delete('/lehrgang-module/:id', async (req, res) => {
         sendError(res, error)
     }
 })
+// Ein bestehendes Quartalsfeld verschieben.
+// Lektionszahl und Quartalslänge bleiben erhalten.
+router.patch('/lehrgang-module/:id/position', async (req, res) => {
+    const id = Number(req.params.id)
+    const startQuarter = req.body?.startQuarter
 
+    if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        typeof startQuarter !== 'number' ||
+        !Number.isInteger(startQuarter) ||
+        startQuarter < 1 ||
+        startQuarter > 12
+    ) {
+        return res.status(400).json({
+            message: 'Ungültige Feld-ID oder ungültiges Startquartal.',
+        })
+    }
+
+    let connection
+    let transactionStarted = false
+
+    try {
+        connection = await pool.getConnection()
+        await connection.beginTransaction()
+        transactionStarted = true
+
+        // Zuerst den zugehörigen Lehrgang ermitteln.
+        const initialRows = await connection.query(
+            'SELECT lehrgang_id FROM lehrgang_modul WHERE id = ?',
+            [id],
+        )
+
+        if (initialRows.length === 0) {
+            await connection.rollback()
+            transactionStarted = false
+
+            return res.status(404).json({
+                message: 'Quartalsfeld nicht gefunden.',
+            })
+        }
+
+        const courseId = initialRows[0].lehrgang_id
+
+        // Gleichzeitige Verschiebungen innerhalb dieses Lehrgangs
+        // werden nacheinander verarbeitet.
+        const courseRows = await connection.query(
+            'SELECT id FROM lehrgang WHERE id = ? FOR UPDATE',
+            [courseId],
+        )
+
+        if (courseRows.length === 0) {
+            await connection.rollback()
+            transactionStarted = false
+
+            return res.status(404).json({
+                message: 'Lehrgang nicht gefunden.',
+            })
+        }
+
+        // Aktuelle Felddaten nach dem Sperren erneut lesen.
+        const rows = await connection.query(
+            `SELECT id, bezeichnung, lehrgang_id, quartal_span
+       FROM lehrgang_modul
+       WHERE id = ?
+       FOR UPDATE`,
+            [id],
+        )
+
+        if (rows.length === 0) {
+            await connection.rollback()
+            transactionStarted = false
+
+            return res.status(404).json({
+                message: 'Quartalsfeld nicht gefunden.',
+            })
+        }
+
+        const field = rows[0]
+        const quarterSpan = Number(field.quartal_span ?? 1)
+
+        if (
+            Number(field.lehrgang_id) !== Number(courseId) ||
+            !Number.isInteger(quarterSpan) ||
+            quarterSpan < 1 ||
+            startQuarter + quarterSpan - 1 > 12
+        ) {
+            await connection.rollback()
+            transactionStarted = false
+
+            return res.status(400).json({
+                message: 'Der Bereich passt nicht in den Lehrplan.',
+            })
+        }
+
+        const otherFields = await connection.query(
+            `SELECT id, lehrjahr, quartal, quartal_span
+       FROM lehrgang_modul
+       WHERE lehrgang_id = ?
+         AND LOWER(TRIM(bezeichnung)) = LOWER(TRIM(?))
+         AND id <> ?
+       FOR UPDATE`,
+            [courseId, field.bezeichnung, id],
+        )
+
+        const endQuarter = startQuarter + quarterSpan - 1
+
+        const overlaps = otherFields.some(other => {
+            const otherStart =
+                (Number(other.lehrjahr) - 1) * 4 +
+                Number(other.quartal)
+
+            const otherEnd =
+                otherStart + Number(other.quartal_span ?? 1) - 1
+
+            return startQuarter <= otherEnd && endQuarter >= otherStart
+        })
+
+        if (overlaps) {
+            await connection.rollback()
+            transactionStarted = false
+
+            return res.status(409).json({
+                message: 'Der Zielbereich ist bereits belegt.',
+            })
+        }
+
+        const lehrjahr = Math.floor((startQuarter - 1) / 4) + 1
+        const quartal = ((startQuarter - 1) % 4) + 1
+        const semester =
+            (lehrjahr - 1) * 2 + Math.ceil(quartal / 2)
+
+        await connection.query(
+            `UPDATE lehrgang_modul
+       SET lehrjahr = ?, semester = ?, quartal = ?
+       WHERE id = ?`,
+            [lehrjahr, semester, quartal, id],
+        )
+
+        await connection.commit()
+        transactionStarted = false
+
+        res.json({
+            id,
+            startQuarter,
+            lehrjahr,
+            semester,
+            quartal,
+        })
+    } catch (error) {
+        if (connection && transactionStarted) {
+            try {
+                await connection.rollback()
+            } catch (rollbackError) {
+                console.error('Rollback fehlgeschlagen:', rollbackError)
+            }
+        }
+
+        console.error('Quartalsfeld verschieben:', error)
+
+        res.status(500).json({
+            message: 'Das Quartalsfeld konnte nicht verschoben werden.',
+        })
+    } finally {
+        if (connection) connection.release()
+    }
+})
 export default router

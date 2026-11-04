@@ -1,433 +1,632 @@
-
 import express from 'express'
 import pool from '../db.js'
 
 const router = express.Router()
 
+// Passend zur aktuellen Lehrplantabelle: Q1 bis Q12.
+const MAX_QUARTERS = 12
+
+function fail(status, message) {
+    const error = new Error(message)
+    error.status = status
+    throw error
+}
+
+function validId(value, label = 'ID') {
+    const text = String(value ?? '')
+
+    if (!/^[1-9]\d*$/.test(text)) {
+        fail(400, `${label} ist ungültig.`)
+    }
+
+    const id = Number(text)
+
+    if (!Number.isSafeInteger(id)) {
+        fail(400, `${label} ist ungültig.`)
+    }
+
+    return id
+}
+
+function validInteger(value, min, max, message) {
+    if (
+        typeof value !== 'number' ||
+        !Number.isInteger(value) ||
+        value < min ||
+        value > max
+    ) {
+        fail(400, message)
+    }
+
+    return value
+}
+
+function validName(value, maxLength, message) {
+    if (typeof value !== 'string') {
+        fail(400, message)
+    }
+
+    const name = value.trim()
+
+    if (!name || Array.from(name).length > maxLength) {
+        fail(400, message)
+    }
+
+    return name
+}
+
+function validLessons(value) {
+    return validInteger(
+        value,
+        0,
+        2147483647,
+        'Bitte eine gültige, nicht negative Lektionszahl eingeben.',
+    )
+}
+
+function validQuarter(value) {
+    return validInteger(
+        value,
+        1,
+        MAX_QUARTERS,
+        'Das Quartal muss zwischen Q1 und Q12 liegen.',
+    )
+}
+
+function toDBQuarter(startQuarter) {
+    const lehrjahr = Math.floor((startQuarter - 1) / 4) + 1
+    const quartal = ((startQuarter - 1) % 4) + 1
+    const semester =
+        (lehrjahr - 1) * 2 + Math.ceil(quartal / 2)
+
+    return { lehrjahr, semester, quartal }
+}
+
+function sendJson(res, data, status = 200) {
+    const body = JSON.stringify(data, (_key, value) =>
+        typeof value === 'bigint' ? value.toString() : value,
+    )
+
+    return res.status(status).type('application/json').send(body)
+}
+
 function sendError(res, error) {
+    if (error.status) {
+        return res.status(error.status).json({
+            message: error.message,
+        })
+    }
+
     console.error('Lehrgang-API:', error)
-    res.status(500).json({
-        message: 'Ein Datenbankfehler ist aufgetreten.'
+
+    if (error.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({
+            message: 'Dieser Eintrag existiert bereits.',
+        })
+    }
+
+    if (
+        error.code === 'ER_ROW_IS_REFERENCED_2' ||
+        error.code === 'ER_NO_REFERENCED_ROW_2'
+    ) {
+        return res.status(409).json({
+            message:
+                'Eine Datenbankverknüpfung verhindert die Änderung. ' +
+                'Der Lehrgang könnte beispielsweise noch von Klassen verwendet werden.',
+        })
+    }
+
+    return res.status(500).json({
+        message:
+            'Ein Datenbankfehler ist aufgetreten. ' +
+            'Weitere Informationen stehen in der Backend-Ausgabe.',
     })
 }
 
-function validId(value) {
-    const id = Number(value)
-    return Number.isInteger(id) && id > 0 ? id : null
+function route(handler) {
+    return async (req, res) => {
+        try {
+            await handler(req, res)
+        } catch (error) {
+            sendError(res, error)
+        }
+    }
 }
 
-// Alle Lehrgänge laden
-router.get('/lehrgaenge', async (req, res) => {
-    try {
-        const rows = await pool.query(
-            'SELECT id, bezeichnung, semesteranzahl FROM lehrgang ORDER BY bezeichnung'
-        )
+async function transaction(handler) {
+    const connection = await pool.getConnection()
 
-        res.json(rows)
+    try {
+        await connection.beginTransaction()
+        const result = await handler(connection)
+        await connection.commit()
+
+        return result
     } catch (error) {
-        sendError(res, error)
-    }
-})
-
-// Lehrgang erstellen
-router.post('/lehrgaenge', async (req, res) => {
-    const bezeichnung = String(req.body.bezeichnung ?? '').trim()
-    const semesteranzahl = Number(req.body.semesteranzahl)
-
-    if (!bezeichnung || ![2, 4, 6].includes(semesteranzahl)) {
-        return res.status(400).json({
-            message: 'Ungültiger Lehrgangsname oder Semesteranzahl.'
-        })
-    }
-
-    try {
-        const result = await pool.query(
-            'INSERT INTO lehrgang (bezeichnung, semesteranzahl) VALUES (?, ?)',
-            [bezeichnung, semesteranzahl]
-        )
-
-        res.status(201).json({
-            id: Number(result.insertId),
-            bezeichnung,
-            semesteranzahl
-        })
-    } catch (error) {
-        sendError(res, error)
-    }
-})
-
-// Lehrgang umbenennen
-router.put('/lehrgaenge/:id', async (req, res) => {
-    const id = validId(req.params.id)
-    const bezeichnung = String(req.body.bezeichnung ?? '').trim()
-
-    if (!id || !bezeichnung) {
-        return res.status(400).json({
-            message: 'Ungültige Angaben.'
-        })
-    }
-
-    try {
-        const result = await pool.query(
-            'UPDATE lehrgang SET bezeichnung = ? WHERE id = ?',
-            [bezeichnung, id]
-        )
-
-        if (Number(result.affectedRows) === 0) {
-            return res.status(404).json({
-                message: 'Lehrgang nicht gefunden.'
-            })
+        try {
+            await connection.rollback()
+        } catch (rollbackError) {
+            console.error('Rollback fehlgeschlagen:', rollbackError)
         }
 
-        res.json({ id, bezeichnung })
-    } catch (error) {
-        sendError(res, error)
+        throw error
+    } finally {
+        connection.release()
     }
-})
+}
 
-// Lehrgang löschen
-router.delete('/lehrgaenge/:id', async (req, res) => {
-    const id = validId(req.params.id)
+async function requireCourse(connection, courseId) {
+    const rows = await connection.query(
+        'SELECT id FROM lehrgang WHERE id = ? FOR UPDATE',
+        [courseId],
+    )
 
-    if (!id) {
-        return res.status(400).json({
-            message: 'Ungültige Lehrgang-ID.'
-        })
+    if (rows.length === 0) {
+        fail(404, 'Lehrgang nicht gefunden.')
     }
+}
 
-    try {
-        const result = await pool.query(
-            'DELETE FROM lehrgang WHERE id = ?',
-            [id]
+// Für alle Änderungen an Quartalsfeldern wird zuerst
+// der Lehrgang und danach das konkrete Feld gesperrt.
+async function withLockedField(fieldId, handler) {
+    return transaction(async connection => {
+        const initialRows = await connection.query(
+            'SELECT lehrgang_id FROM lehrgang_modul WHERE id = ?',
+            [fieldId],
         )
 
-        if (Number(result.affectedRows) === 0) {
-            return res.status(404).json({
-                message: 'Lehrgang nicht gefunden.'
-            })
+        if (initialRows.length === 0) {
+            fail(404, 'Quartalsfeld nicht gefunden.')
         }
 
-        res.status(204).send()
-    } catch (error) {
-        sendError(res, error)
-    }
-})
+        const courseId = initialRows[0].lehrgang_id
 
-// Module eines Lehrgangs laden
-router.get('/lehrgaenge/:id/module', async (req, res) => {
-    const id = validId(req.params.id)
+        await requireCourse(connection, courseId)
 
-    if (!id) {
-        return res.status(400).json({
-            message: 'Ungültige Lehrgang-ID.'
-        })
-    }
-
-    try {
-        const rows = await pool.query(
-            `SELECT id, bezeichnung, lehrjahr, semester,
-              quartal, quartal_span, lektionen, lehrgang_id
+        const rows = await connection.query(
+            `SELECT id, bezeichnung, lehrgang_id,
+              lehrjahr, semester, quartal,
+              quartal_span, lektionen
        FROM lehrgang_modul
-       WHERE lehrgang_id = ?
-       ORDER BY bezeichnung, lehrjahr, quartal`,
-            [id]
+       WHERE id = ?
+       FOR UPDATE`,
+            [fieldId],
         )
 
-        res.json(rows)
-    } catch (error) {
-        sendError(res, error)
-    }
-})
+        if (rows.length === 0) {
+            fail(404, 'Quartalsfeld nicht gefunden.')
+        }
 
-// Modul beziehungsweise Quartalsfeld erstellen
-router.post('/lehrgaenge/:id/module', async (req, res) => {
-    const lehrgangId = validId(req.params.id)
-    const bezeichnung = String(req.body.bezeichnung ?? '').trim()
+        const field = rows[0]
 
-    const lehrjahr = Number(req.body.lehrjahr)
-    const semester = Number(req.body.semester)
-    const quartal = Number(req.body.quartal)
-    const quartalSpan = Number(req.body.quartal_span ?? 1)
-    const lektionen = Number(req.body.lektionen ?? 0)
+        if (Number(field.lehrgang_id) !== Number(courseId)) {
+            fail(
+                409,
+                'Das Feld wurde zwischenzeitlich geändert. Bitte neu laden.',
+            )
+        }
 
-    const startQuarter = (lehrjahr - 1) * 4 + quartal
+        return handler(connection, field)
+    })
+}
 
+async function ensureRangeAvailable(
+    connection,
+    courseId,
+    moduleName,
+    startQuarter,
+    endQuarter,
+    ignoredFieldId = 0,
+) {
     if (
-        !lehrgangId ||
-        !bezeichnung ||
-        !Number.isInteger(lehrjahr) ||
-        lehrjahr < 1 ||
-        lehrjahr > 3 ||
-        !Number.isInteger(semester) ||
-        semester < 1 ||
-        semester > 6 ||
-        !Number.isInteger(quartal) ||
-        quartal < 1 ||
-        quartal > 4 ||
-        !Number.isInteger(quartalSpan) ||
-        quartalSpan < 1 ||
-        startQuarter + quartalSpan - 1 > 12 ||
-        !Number.isInteger(lektionen) ||
-        lektionen < 0
+        !Number.isInteger(startQuarter) ||
+        !Number.isInteger(endQuarter) ||
+        startQuarter < 1 ||
+        endQuarter < startQuarter ||
+        endQuarter > MAX_QUARTERS
     ) {
-        return res.status(400).json({
-            message: 'Ungültige Modul- oder Quartalsangaben.'
-        })
+        fail(400, 'Der Bereich muss innerhalb von Q1 bis Q12 liegen.')
     }
 
-    try {
-        const result = await pool.query(
+    const rows = await connection.query(
+        `SELECT id, lehrjahr, quartal, quartal_span
+     FROM lehrgang_modul
+     WHERE lehrgang_id = ?
+       AND LOWER(TRIM(bezeichnung)) = LOWER(TRIM(?))
+       AND id <> ?
+     FOR UPDATE`,
+        [courseId, moduleName, ignoredFieldId],
+    )
+
+    const overlaps = rows.some(field => {
+        const fieldStart =
+            (Number(field.lehrjahr) - 1) * 4 +
+            Number(field.quartal)
+
+        const fieldEnd =
+            fieldStart + Number(field.quartal_span ?? 1) - 1
+
+        return startQuarter <= fieldEnd && endQuarter >= fieldStart
+    })
+
+    if (overlaps) {
+        fail(
+            409,
+            'Der Bereich überschneidet sich mit einem anderen Feld.',
+        )
+    }
+}
+
+// --------------------------------------------------
+// Lehrgänge
+// --------------------------------------------------
+
+router.get('/lehrgaenge', route(async (_req, res) => {
+    const rows = await pool.query(
+        `SELECT id, bezeichnung, semesteranzahl
+     FROM lehrgang
+     ORDER BY bezeichnung`,
+    )
+
+    sendJson(res, rows)
+}))
+
+router.post('/lehrgaenge', route(async (req, res) => {
+    const name = validName(
+        req.body?.bezeichnung,
+        255,
+        'Bitte einen Lehrgangsnamen mit 1 bis 255 Zeichen eingeben.',
+    )
+
+    const semesters = req.body?.semesteranzahl
+
+    if (![2, 4, 6].includes(semesters)) {
+        fail(400, 'Bitte 2, 4 oder 6 Semester auswählen.')
+    }
+
+    const existing = await pool.query(
+        `SELECT id
+     FROM lehrgang
+     WHERE LOWER(TRIM(bezeichnung)) = LOWER(?)
+     LIMIT 1`,
+        [name],
+    )
+
+    if (existing.length > 0) {
+        fail(409, 'Dieser Lehrgang existiert bereits.')
+    }
+
+    const result = await pool.query(
+        `INSERT INTO lehrgang (bezeichnung, semesteranzahl)
+     VALUES (?, ?)`,
+        [name, semesters],
+    )
+
+    sendJson(res, {
+        id: result.insertId,
+        bezeichnung: name,
+        semesteranzahl: semesters,
+    }, 201)
+}))
+
+router.put('/lehrgaenge/:id', route(async (req, res) => {
+    const id = validId(req.params.id, 'Lehrgang-ID')
+
+    const name = validName(
+        req.body?.bezeichnung,
+        255,
+        'Bitte einen Lehrgangsnamen mit 1 bis 255 Zeichen eingeben.',
+    )
+
+    await transaction(async connection => {
+        await requireCourse(connection, id)
+
+        const existing = await connection.query(
+            `SELECT id
+       FROM lehrgang
+       WHERE LOWER(TRIM(bezeichnung)) = LOWER(?)
+         AND id <> ?
+       LIMIT 1`,
+            [name, id],
+        )
+
+        if (existing.length > 0) {
+            fail(409, 'Dieser Lehrgang existiert bereits.')
+        }
+
+        await connection.query(
+            'UPDATE lehrgang SET bezeichnung = ? WHERE id = ?',
+            [name, id],
+        )
+    })
+
+    res.json({
+        id,
+        bezeichnung: name,
+    })
+}))
+
+router.delete('/lehrgaenge/:id', route(async (req, res) => {
+    const id = validId(req.params.id, 'Lehrgang-ID')
+
+    await transaction(async connection => {
+        await requireCourse(connection, id)
+
+        await connection.query(
+            'DELETE FROM lehrgang_modul WHERE lehrgang_id = ?',
+            [id],
+        )
+
+        // Falls Klassen oder Logs den Lehrgang referenzieren,
+        // verhindert die Datenbank das Löschen.
+        // Die Transaktion stellt dann auch die Module wieder her.
+        await connection.query(
+            'DELETE FROM lehrgang WHERE id = ?',
+            [id],
+        )
+    })
+
+    res.json({ success: true })
+}))
+
+// --------------------------------------------------
+// Module und Quartalsfelder laden
+// --------------------------------------------------
+
+router.get('/lehrgaenge/:id/module', route(async (req, res) => {
+    const courseId = validId(req.params.id, 'Lehrgang-ID')
+
+    const rows = await pool.query(
+        `SELECT id, bezeichnung, lehrjahr, semester,
+            quartal, quartal_span, lektionen, lehrgang_id
+     FROM lehrgang_modul
+     WHERE lehrgang_id = ?
+     ORDER BY bezeichnung, lehrjahr, quartal, id`,
+        [courseId],
+    )
+
+    sendJson(res, rows)
+}))
+
+// --------------------------------------------------
+// Neues Modul beziehungsweise Quartalsfeld
+// --------------------------------------------------
+
+router.post('/lehrgaenge/:id/module', route(async (req, res) => {
+    const courseId = validId(req.params.id, 'Lehrgang-ID')
+
+    const name = validName(
+        req.body?.bezeichnung,
+        50,
+        'Bitte einen Modulnamen mit 1 bis 50 Zeichen eingeben.',
+    )
+
+    const year = validInteger(
+        req.body?.lehrjahr,
+        1,
+        3,
+        'Das Lehrjahr muss zwischen 1 und 3 liegen.',
+    )
+
+    const quarter = validInteger(
+        req.body?.quartal,
+        1,
+        4,
+        'Das Quartal innerhalb des Lehrjahrs muss zwischen 1 und 4 liegen.',
+    )
+
+    const span = validInteger(
+        req.body?.quartal_span ?? 1,
+        1,
+        MAX_QUARTERS,
+        'Ungültige Quartalslänge.',
+    )
+
+    const lessons = validLessons(req.body?.lektionen ?? 0)
+
+    const startQuarter = (year - 1) * 4 + quarter
+    const endQuarter = startQuarter + span - 1
+    const position = toDBQuarter(startQuarter)
+
+    const created = await transaction(async connection => {
+        await requireCourse(connection, courseId)
+
+        await ensureRangeAvailable(
+            connection,
+            courseId,
+            name,
+            startQuarter,
+            endQuarter,
+        )
+
+        const result = await connection.query(
             `INSERT INTO lehrgang_modul
        (bezeichnung, lehrjahr, semester, quartal,
         quartal_span, lektionen, lehrgang_id)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
-                bezeichnung,
-                lehrjahr,
-                semester,
-                quartal,
-                quartalSpan,
-                lektionen,
-                lehrgangId
-            ]
+                name,
+                position.lehrjahr,
+                position.semester,
+                position.quartal,
+                span,
+                lessons,
+                courseId,
+            ],
         )
 
-        res.status(201).json({
-            id: Number(result.insertId),
-            bezeichnung,
-            lehrjahr,
-            semester,
-            quartal,
-            quartal_span: quartalSpan,
-            lektionen,
-            lehrgang_id: lehrgangId
-        })
-    } catch (error) {
-        sendError(res, error)
-    }
-})
-
-// Lektionen eines Feldes bearbeiten
-router.put('/lehrgang-module/:id', async (req, res) => {
-    const id = validId(req.params.id)
-    const lektionen = Number(req.body.lektionen)
-
-    if (!id || !Number.isInteger(lektionen) || lektionen < 0) {
-        return res.status(400).json({
-            message: 'Ungültige Lektionszahl.'
-        })
-    }
-
-    try {
-        const result = await pool.query(
-            'UPDATE lehrgang_modul SET lektionen = ? WHERE id = ?',
-            [lektionen, id]
-        )
-
-        if (Number(result.affectedRows) === 0) {
-            return res.status(404).json({
-                message: 'Quartalsfeld nicht gefunden.'
-            })
+        return {
+            id: result.insertId,
+            bezeichnung: name,
+            ...position,
+            quartal_span: span,
+            lektionen: lessons,
+            lehrgang_id: courseId,
         }
+    })
 
-        res.json({ id, lektionen })
-    } catch (error) {
-        sendError(res, error)
-    }
-})
+    sendJson(res, created, 201)
+}))
 
-// Quartalsfeld löschen
-router.delete('/lehrgang-module/:id', async (req, res) => {
-    const id = validId(req.params.id)
+// --------------------------------------------------
+// Bisherige Route: nur Lektionen bearbeiten
+// --------------------------------------------------
 
-    if (!id) {
-        return res.status(400).json({
-            message: 'Ungültige Feld-ID.'
-        })
-    }
+router.put('/lehrgang-module/:id', route(async (req, res) => {
+    const id = validId(req.params.id, 'Feld-ID')
+    const lessons = validLessons(req.body?.lektionen)
 
-    try {
-        const result = await pool.query(
-            'DELETE FROM lehrgang_modul WHERE id = ?',
-            [id]
-        )
-
-        if (Number(result.affectedRows) === 0) {
-            return res.status(404).json({
-                message: 'Quartalsfeld nicht gefunden.'
-            })
-        }
-
-        res.status(204).send()
-    } catch (error) {
-        sendError(res, error)
-    }
-})
-// Ein bestehendes Quartalsfeld verschieben.
-// Lektionszahl und Quartalslänge bleiben erhalten.
-router.patch('/lehrgang-module/:id/position', async (req, res) => {
-    const id = Number(req.params.id)
-    const startQuarter = req.body?.startQuarter
-
-    if (
-        !Number.isSafeInteger(id) ||
-        id <= 0 ||
-        typeof startQuarter !== 'number' ||
-        !Number.isInteger(startQuarter) ||
-        startQuarter < 1 ||
-        startQuarter > 12
-    ) {
-        return res.status(400).json({
-            message: 'Ungültige Feld-ID oder ungültiges Startquartal.',
-        })
-    }
-
-    let connection
-    let transactionStarted = false
-
-    try {
-        connection = await pool.getConnection()
-        await connection.beginTransaction()
-        transactionStarted = true
-
-        // Zuerst den zugehörigen Lehrgang ermitteln.
-        const initialRows = await connection.query(
-            'SELECT lehrgang_id FROM lehrgang_modul WHERE id = ?',
-            [id],
-        )
-
-        if (initialRows.length === 0) {
-            await connection.rollback()
-            transactionStarted = false
-
-            return res.status(404).json({
-                message: 'Quartalsfeld nicht gefunden.',
-            })
-        }
-
-        const courseId = initialRows[0].lehrgang_id
-
-        // Gleichzeitige Verschiebungen innerhalb dieses Lehrgangs
-        // werden nacheinander verarbeitet.
-        const courseRows = await connection.query(
-            'SELECT id FROM lehrgang WHERE id = ? FOR UPDATE',
-            [courseId],
-        )
-
-        if (courseRows.length === 0) {
-            await connection.rollback()
-            transactionStarted = false
-
-            return res.status(404).json({
-                message: 'Lehrgang nicht gefunden.',
-            })
-        }
-
-        // Aktuelle Felddaten nach dem Sperren erneut lesen.
-        const rows = await connection.query(
-            `SELECT id, bezeichnung, lehrgang_id, quartal_span
-       FROM lehrgang_modul
-       WHERE id = ?
-       FOR UPDATE`,
-            [id],
-        )
-
-        if (rows.length === 0) {
-            await connection.rollback()
-            transactionStarted = false
-
-            return res.status(404).json({
-                message: 'Quartalsfeld nicht gefunden.',
-            })
-        }
-
-        const field = rows[0]
-        const quarterSpan = Number(field.quartal_span ?? 1)
-
-        if (
-            Number(field.lehrgang_id) !== Number(courseId) ||
-            !Number.isInteger(quarterSpan) ||
-            quarterSpan < 1 ||
-            startQuarter + quarterSpan - 1 > 12
-        ) {
-            await connection.rollback()
-            transactionStarted = false
-
-            return res.status(400).json({
-                message: 'Der Bereich passt nicht in den Lehrplan.',
-            })
-        }
-
-        const otherFields = await connection.query(
-            `SELECT id, lehrjahr, quartal, quartal_span
-       FROM lehrgang_modul
-       WHERE lehrgang_id = ?
-         AND LOWER(TRIM(bezeichnung)) = LOWER(TRIM(?))
-         AND id <> ?
-       FOR UPDATE`,
-            [courseId, field.bezeichnung, id],
-        )
-
-        const endQuarter = startQuarter + quarterSpan - 1
-
-        const overlaps = otherFields.some(other => {
-            const otherStart =
-                (Number(other.lehrjahr) - 1) * 4 +
-                Number(other.quartal)
-
-            const otherEnd =
-                otherStart + Number(other.quartal_span ?? 1) - 1
-
-            return startQuarter <= otherEnd && endQuarter >= otherStart
-        })
-
-        if (overlaps) {
-            await connection.rollback()
-            transactionStarted = false
-
-            return res.status(409).json({
-                message: 'Der Zielbereich ist bereits belegt.',
-            })
-        }
-
-        const lehrjahr = Math.floor((startQuarter - 1) / 4) + 1
-        const quartal = ((startQuarter - 1) % 4) + 1
-        const semester =
-            (lehrjahr - 1) * 2 + Math.ceil(quartal / 2)
-
+    await withLockedField(id, async connection => {
         await connection.query(
-            `UPDATE lehrgang_modul
-       SET lehrjahr = ?, semester = ?, quartal = ?
-       WHERE id = ?`,
-            [lehrjahr, semester, quartal, id],
+            'UPDATE lehrgang_modul SET lektionen = ? WHERE id = ?',
+            [lessons, id],
+        )
+    })
+
+    res.json({
+        id,
+        lektionen: lessons,
+    })
+}))
+
+// --------------------------------------------------
+// Drag-and-drop: Position ändern
+// --------------------------------------------------
+
+router.patch(
+    '/lehrgang-module/:id/position',
+    route(async (req, res) => {
+        const id = validId(req.params.id, 'Feld-ID')
+        const startQuarter = validQuarter(req.body?.startQuarter)
+
+        const updated = await withLockedField(
+            id,
+            async (connection, field) => {
+                const quarterSpan = validInteger(
+                    Number(field.quartal_span ?? 1),
+                    1,
+                    MAX_QUARTERS,
+                    'Die gespeicherte Quartalslänge ist ungültig.',
+                )
+
+                const endQuarter = startQuarter + quarterSpan - 1
+
+                await ensureRangeAvailable(
+                    connection,
+                    field.lehrgang_id,
+                    field.bezeichnung,
+                    startQuarter,
+                    endQuarter,
+                    id,
+                )
+
+                const position = toDBQuarter(startQuarter)
+
+                await connection.query(
+                    `UPDATE lehrgang_modul
+           SET lehrjahr = ?, semester = ?, quartal = ?
+           WHERE id = ?`,
+                    [
+                        position.lehrjahr,
+                        position.semester,
+                        position.quartal,
+                        id,
+                    ],
+                )
+
+                return {
+                    id,
+                    startQuarter,
+                    endQuarter,
+                    quarterSpan,
+                    ...position,
+                }
+            },
         )
 
-        await connection.commit()
-        transactionStarted = false
+        sendJson(res, updated)
+    }),
+)
 
-        res.json({
-            id,
-            startQuarter,
-            lehrjahr,
-            semester,
-            quartal,
-        })
-    } catch (error) {
-        if (connection && transactionStarted) {
-            try {
-                await connection.rollback()
-            } catch (rollbackError) {
-                console.error('Rollback fehlgeschlagen:', rollbackError)
-            }
+// --------------------------------------------------
+// Bereich nach vorne oder hinten ändern
+// und Lektionen gemeinsam speichern
+// --------------------------------------------------
+
+router.patch(
+    '/lehrgang-module/:id/bereich',
+    route(async (req, res) => {
+        const id = validId(req.params.id, 'Feld-ID')
+        const startQuarter = validQuarter(req.body?.startQuarter)
+        const endQuarter = validQuarter(req.body?.endQuarter)
+        const lessons = validLessons(req.body?.lessons)
+
+        if (endQuarter < startQuarter) {
+            fail(400, 'Das Endquartal darf nicht vor dem Startquartal liegen.')
         }
 
-        console.error('Quartalsfeld verschieben:', error)
+        const updated = await withLockedField(
+            id,
+            async (connection, field) => {
+                await ensureRangeAvailable(
+                    connection,
+                    field.lehrgang_id,
+                    field.bezeichnung,
+                    startQuarter,
+                    endQuarter,
+                    id,
+                )
 
-        res.status(500).json({
-            message: 'Das Quartalsfeld konnte nicht verschoben werden.',
-        })
-    } finally {
-        if (connection) connection.release()
-    }
-})
+                const quarterSpan = endQuarter - startQuarter + 1
+                const position = toDBQuarter(startQuarter)
+
+                await connection.query(
+                    `UPDATE lehrgang_modul
+           SET lehrjahr = ?,
+               semester = ?,
+               quartal = ?,
+               quartal_span = ?,
+               lektionen = ?
+           WHERE id = ?`,
+                    [
+                        position.lehrjahr,
+                        position.semester,
+                        position.quartal,
+                        quarterSpan,
+                        lessons,
+                        id,
+                    ],
+                )
+
+                return {
+                    id,
+                    startQuarter,
+                    endQuarter,
+                    quarterSpan,
+                    lessons,
+                }
+            },
+        )
+
+        sendJson(res, updated)
+    }),
+)
+
+// --------------------------------------------------
+// Quartalsfeld löschen
+// --------------------------------------------------
+
+router.delete('/lehrgang-module/:id', route(async (req, res) => {
+    const id = validId(req.params.id, 'Feld-ID')
+
+    await withLockedField(id, async connection => {
+        await connection.query(
+            'DELETE FROM lehrgang_modul WHERE id = ?',
+            [id],
+        )
+    })
+
+    res.json({ success: true })
+}))
+
 export default router

@@ -11,6 +11,10 @@ const weekdays = [
     'Freitag',
 ]
 
+// --------------------------------------------------
+// Hilfsfunktionen
+// --------------------------------------------------
+
 function fail(status, message) {
     const error = new Error(message)
     error.status = status
@@ -40,7 +44,6 @@ function validClassName(value) {
 
     const name = value.trim()
 
-    // klasse.bezeichnung ist laut DDL VARCHAR(50).
     if (Array.from(name).length > 50) {
         fail(400, 'Der Klassenname darf höchstens 50 Zeichen lang sein.')
     }
@@ -59,6 +62,17 @@ function validCapacity(value) {
     }
 
     return value
+}
+
+function validLabelColor(value) {
+    if (
+        typeof value !== 'string' ||
+        !/^#[0-9a-fA-F]{6}$/.test(value)
+    ) {
+        fail(400, 'Bitte eine gültige Farbe auswählen.')
+    }
+
+    return value.toLowerCase()
 }
 
 function sendJson(res, data, status = 200) {
@@ -100,7 +114,6 @@ function sendError(res, error) {
     })
 }
 
-// Fängt Fehler auch bei Express 4 zuverlässig ab.
 function route(handler) {
     return async (req, res) => {
         try {
@@ -118,6 +131,7 @@ async function transaction(handler) {
         await connection.beginTransaction()
         const result = await handler(connection)
         await connection.commit()
+
         return result
     } catch (error) {
         try {
@@ -187,7 +201,6 @@ async function updateSchoolDayCount(connection, classId) {
 // --------------------------------------------------
 
 router.get('/klassen', route(async (_req, res) => {
-    // Der mariadb-Treiber liefert die Zeilen direkt.
     const rows = await pool.query(
         `SELECT id, bezeichnung, lehrgang_id
      FROM klasse
@@ -201,7 +214,7 @@ router.post('/klassen', route(async (req, res) => {
     const name = validClassName(req.body?.bezeichnung)
     const courseId = validId(req.body?.lehrgang_id, 'Lehrgang-ID')
 
-    const created = await transaction(async (connection) => {
+    const created = await transaction(async connection => {
         const courses = await connection.query(
             'SELECT id FROM lehrgang WHERE id = ? LOCK IN SHARE MODE',
             [courseId],
@@ -222,8 +235,6 @@ router.post('/klassen', route(async (req, res) => {
 
         const classId = result.insertId
 
-        // Gleiche Modulübernahme wie in deinem DML.
-        // klasse_modul besitzt laut DDL keine Spalte quartal_span.
         await connection.query(
             `INSERT INTO klasse_modul
        (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
@@ -247,7 +258,7 @@ router.put('/klassen/:id', route(async (req, res) => {
     const id = validId(req.params.id, 'Klassen-ID')
     const name = validClassName(req.body?.bezeichnung)
 
-    await transaction(async (connection) => {
+    await transaction(async connection => {
         await requireClass(connection, id)
         await checkDuplicateClass(connection, name, id)
 
@@ -266,10 +277,9 @@ router.put('/klassen/:id', route(async (req, res) => {
 router.delete('/klassen/:id', route(async (req, res) => {
     const id = validId(req.params.id, 'Klassen-ID')
 
-    await transaction(async (connection) => {
+    await transaction(async connection => {
         await requireClass(connection, id)
 
-        // Erst alle abhängigen Datensätze entfernen.
         await connection.query(
             'DELETE FROM regel WHERE klasse_a_id = ? OR klasse_b_id = ?',
             [id, id],
@@ -321,7 +331,7 @@ router.post('/ressourcen', route(async (req, res) => {
         fail(400, 'Ungültiger Wochentag.')
     }
 
-    const created = await transaction(async (connection) => {
+    const created = await transaction(async connection => {
         const existing = await connection.query(
             'SELECT id FROM ressourcen WHERE wochentag = ?',
             [day],
@@ -351,7 +361,7 @@ router.put('/ressourcen/:id', route(async (req, res) => {
     const id = validId(req.params.id, 'Ressourcen-ID')
     const capacity = validCapacity(req.body?.anzahl_raeume)
 
-    await transaction(async (connection) => {
+    await transaction(async connection => {
         await requireResource(connection, id)
 
         await connection.query(
@@ -368,9 +378,6 @@ router.put('/ressourcen/:id', route(async (req, res) => {
 
 // --------------------------------------------------
 // Schultage
-//
-// API-Pfad: /klasse-ressourcen
-// SQL-Tabelle: klasse_ressource
 // --------------------------------------------------
 
 router.get('/klasse-ressourcen', route(async (_req, res) => {
@@ -387,8 +394,7 @@ router.post('/klasse-ressourcen', route(async (req, res) => {
     const classId = validId(req.body?.klasse_id, 'Klassen-ID')
     const resourceId = validId(req.body?.ressourcen_id, 'Ressourcen-ID')
 
-    await transaction(async (connection) => {
-        // Die Klassensperre serialisiert Änderungen ihrer Schultage.
+    await transaction(async connection => {
         await requireClass(connection, classId)
         await requireResource(connection, resourceId)
 
@@ -423,7 +429,7 @@ router.delete(
         const classId = validId(req.params.classId, 'Klassen-ID')
         const resourceId = validId(req.params.resourceId, 'Ressourcen-ID')
 
-        await transaction(async (connection) => {
+        await transaction(async connection => {
             await requireClass(connection, classId)
             await requireResource(connection, resourceId)
 
@@ -465,12 +471,10 @@ router.post('/regeln', route(async (req, res) => {
     const classAId = Math.min(firstId, secondId)
     const classBId = Math.max(firstId, secondId)
 
-    const created = await transaction(async (connection) => {
-        // Einheitliche Sperrreihenfolge.
+    const created = await transaction(async connection => {
         await requireClass(connection, classAId)
         await requireClass(connection, classBId)
 
-        // Erkennt auch bestehende Regeln mit umgekehrter Reihenfolge.
         const existing = await connection.query(
             `SELECT id
        FROM regel
@@ -515,39 +519,26 @@ router.delete('/regeln/:id', route(async (req, res) => {
 
     res.json({ success: true })
 }))
+
 // --------------------------------------------------
-// Labels einer Klasse mit eigener Farbe
+// Labels mit gemeinsamer Farbe
 // --------------------------------------------------
 
-function validLabelColor(value) {
-    if (
-        typeof value !== 'string' ||
-        !/^#[0-9a-fA-F]{6}$/.test(value)
-    ) {
-        fail(400, 'Bitte eine gültige Farbe auswählen.')
-    }
-
-    return value.toLowerCase()
-}
-
-// Alle Label-Zuordnungen inklusive Farbe laden.
 router.get('/klasse-labels', route(async (_req, res) => {
     const rows = await pool.query(
         `SELECT DISTINCT
-             kl.klasse_id,
-             l.id AS label_id,
-             l.name,
-             kl.farbe
-         FROM klasse_label kl
-                  INNER JOIN label l ON l.id = kl.label_id
-         ORDER BY l.name`,
+       kl.klasse_id,
+       l.id AS label_id,
+       l.name,
+       l.farbe
+     FROM klasse_label kl
+     INNER JOIN label l ON l.id = kl.label_id
+     ORDER BY l.name`,
     )
 
     sendJson(res, rows)
 }))
 
-// Label erstellen beziehungsweise wiederverwenden
-// und der Klasse mit ihrer gewählten Farbe zuordnen.
 router.post('/klassen/:id/labels', route(async (req, res) => {
     const classId = validId(req.params.id, 'Klassen-ID')
 
@@ -566,15 +557,19 @@ router.post('/klassen/:id/labels', route(async (req, res) => {
     const assignment = await transaction(async connection => {
         await requireClass(connection, classId)
 
+        // Vorhandene Labels behalten ihre gemeinsame Farbe.
         await connection.query(
-            `INSERT INTO label (name)
-       VALUES (?)
+            `INSERT INTO label (name, farbe)
+       VALUES (?, ?)
        ON DUPLICATE KEY UPDATE id = id`,
-            [name],
+            [name, color],
         )
 
         const labels = await connection.query(
-            'SELECT id, name FROM label WHERE name = ?',
+            `SELECT id, name, farbe
+       FROM label
+       WHERE name = ?
+       FOR UPDATE`,
             [name],
         )
 
@@ -594,17 +589,9 @@ router.post('/klassen/:id/labels', route(async (req, res) => {
 
         if (existing.length === 0) {
             await connection.query(
-                `INSERT INTO klasse_label
-                     (klasse_id, label_id, farbe)
-                 VALUES (?, ?, ?)`,
-                [classId, label.id, color],
-            )
-        } else {
-            await connection.query(
-                `UPDATE klasse_label
-         SET farbe = ?
-         WHERE klasse_id = ? AND label_id = ?`,
-                [color, classId, label.id],
+                `INSERT INTO klasse_label (klasse_id, label_id)
+         VALUES (?, ?)`,
+                [classId, label.id],
             )
         }
 
@@ -612,14 +599,13 @@ router.post('/klassen/:id/labels', route(async (req, res) => {
             klasse_id: classId,
             label_id: label.id,
             name: label.name,
-            farbe: color,
+            farbe: label.farbe,
         }
     })
 
     sendJson(res, assignment)
 }))
 
-// Farbe einer bestehenden Zuordnung ändern.
 router.patch(
     '/klassen/:id/labels/:labelId/farbe',
     route(async (req, res) => {
@@ -630,7 +616,16 @@ router.patch(
         await transaction(async connection => {
             await requireClass(connection, classId)
 
-            const existing = await connection.query(
+            const labels = await connection.query(
+                'SELECT id FROM label WHERE id = ? FOR UPDATE',
+                [labelId],
+            )
+
+            if (labels.length === 0) {
+                fail(404, 'Label nicht gefunden.')
+            }
+
+            const assignments = await connection.query(
                 `SELECT klasse_id
          FROM klasse_label
          WHERE klasse_id = ? AND label_id = ?
@@ -638,27 +633,24 @@ router.patch(
                 [classId, labelId],
             )
 
-            if (existing.length === 0) {
+            if (assignments.length === 0) {
                 fail(404, 'Dieses Label ist der Klasse nicht zugeordnet.')
             }
 
+            // Die Farbe gilt für sämtliche Klassen mit diesem Label.
             await connection.query(
-                `UPDATE klasse_label
-         SET farbe = ?
-         WHERE klasse_id = ? AND label_id = ?`,
-                [color, classId, labelId],
+                'UPDATE label SET farbe = ? WHERE id = ?',
+                [color, labelId],
             )
         })
 
         res.json({
-            klasse_id: classId,
             label_id: labelId,
             farbe: color,
         })
     }),
 )
 
-// Label nur von dieser Klasse entfernen.
 router.delete(
     '/klassen/:id/labels/:labelId',
     route(async (req, res) => {
@@ -668,9 +660,10 @@ router.delete(
         await transaction(async connection => {
             await requireClass(connection, classId)
 
+            // Nur die Zuordnung entfernen, nicht das gemeinsame Label.
             await connection.query(
                 `DELETE FROM klasse_label
-                 WHERE klasse_id = ? AND label_id = ?`,
+         WHERE klasse_id = ? AND label_id = ?`,
                 [classId, labelId],
             )
         })
@@ -680,11 +673,3 @@ router.delete(
 )
 
 export default router
-
-
-
-
-
-
-
-

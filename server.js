@@ -3,6 +3,7 @@ import cors from 'cors';
 import bcrypt from 'bcrypt';
 import pool, { testConnection } from './db.js';
 
+
 const app = express();
 const PORT = 3000;
 
@@ -10,6 +11,7 @@ testConnection();
 
 app.use(cors());
 app.use(express.json());
+app.use('/api', homepageRoutes)
 
 app.post('/api/register', async(req, res) => {
     const { email, password } = req.body;

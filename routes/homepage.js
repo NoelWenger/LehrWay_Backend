@@ -671,5 +671,14 @@ router.delete(
         res.json({ success: true })
     }),
 )
+// Alle vorhandenen Labels für die Wiederverwendung laden.
+router.get('/labels', route(async (_req, res) => {
+    const rows = await pool.query(
+        `SELECT id, name, farbe
+     FROM label
+     ORDER BY name`,
+    )
 
+    sendJson(res, rows)
+}))
 export default router

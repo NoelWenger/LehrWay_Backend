@@ -1,5 +1,8 @@
 import express from 'express'
-import pool from '../db.js'
+import {
+    auditPool as pool,
+    runAudited,
+} from '../audit.js'
 
 const router = express.Router()
 
@@ -127,7 +130,11 @@ function sendError(res, error) {
 function route(handler) {
     return async (req, res) => {
         try {
-            await handler(req, res)
+            await runAudited(
+                req,
+                res,
+                handler,
+            )
         } catch (error) {
             sendError(res, error)
         }

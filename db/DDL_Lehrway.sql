@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS lehrgang_modul;
 DROP TABLE IF EXISTS user;
 DROP TABLE IF EXISTS schuljahr;
 DROP TABLE IF EXISTS lehrgang;
+DROP TABLE IF EXISTS app_session;
 
 CREATE TABLE lehrgang (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -107,15 +108,33 @@ CREATE TABLE user (
     passwort_hash VARCHAR(255),
     zuletzt_aktiv TIMESTAMP
 );
-
+CREATE TABLE app_session (
+    token_hash CHAR(64) PRIMARY KEY,
+    user_id INT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    FOREIGN KEY (user_id)
+    REFERENCES user(id)
+    ON DELETE CASCADE,
+    INDEX (expires_at)
+);
 CREATE TABLE log (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lehrgang_id INT,
     user_id INT,
     beschreibung TEXT,
-    erstellt_am TIMESTAMP,
-    FOREIGN KEY (lehrgang_id) REFERENCES lehrgang(id),
-    FOREIGN KEY (user_id) REFERENCES user(id)
+    erstellt_am TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+
+    benutzername VARCHAR(50) NULL,
+    aktion VARCHAR(80) NULL,
+    objekt_typ VARCHAR(50) NULL,
+    objekt_id INT NULL,
+    vorher_json LONGTEXT NULL,
+    nachher_json LONGTEXT NULL,
+
+    FOREIGN KEY (lehrgang_id)
+    REFERENCES lehrgang(id),
+    FOREIGN KEY (user_id)
+    REFERENCES user(id)
 );
 
 INSERT INTO schuljahr (start_jahr, bezeichnung)

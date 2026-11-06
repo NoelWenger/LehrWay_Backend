@@ -291,8 +291,8 @@ router.post('/lehrgaenge', route(async (req, res) => {
 
     const semesters = req.body?.semesteranzahl
 
-    if (![2, 4, 6].includes(semesters)) {
-        fail(400, 'Bitte 2, 4 oder 6 Semester auswählen.')
+    if (![2, 4, 6, 8].includes(semesters)) {
+        fail(400, 'Bitte 2, 4, 6 oder 8 Semester auswählen.')
     }
 
     const existing = await pool.query(
@@ -339,7 +339,7 @@ router.put('/lehrgaenge/:id', route(async (req, res) => {
 
         // Bestehende acht Semester dürfen beibehalten werden.
         if (
-            ![2, 4, 6].includes(semesters) &&
+            ![2, 4, 6, 8].includes(semesters) &&
             semesters !== currentSemesters
         ) {
             fail(400, 'Bitte 2, 4 oder 6 Semester auswählen.')

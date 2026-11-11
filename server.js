@@ -55,7 +55,17 @@ app.get('/api/version', (_req, res) => {
 })
 
 app.post('/api/register', async (req, res) => {
-    const { email, password } = req.body || {}
+    const { email, password, username: rawUsername } = req.body || {}
+    const username = typeof rawUsername === 'string'
+        ? rawUsername.trim()
+        : ''
+
+    if (!username || username.length > 50) {
+        return res.status(400).json({
+            success: false,
+            message: 'Bitte gib einen Anzeigenamen mit 1 bis 50 Zeichen ein.',
+        })
+    }
 
     if (
         typeof email !== 'string' ||
@@ -82,17 +92,11 @@ app.post('/api/register', async (req, res) => {
 
     try {
         const address = email.trim()
-        const username = address.split('@')[0]
 
-        if (
-            address.length > 100 ||
-            username.length > 50 ||
-            !username
-        ) {
+        if (address.length > 100) {
             return res.status(400).json({
                 success: false,
-                message:
-                    'Die E-Mail-Adresse ist ungültig oder zu lang.',
+                message: 'Die E-Mail-Adresse ist ungültig oder zu lang.',
             })
         }
 

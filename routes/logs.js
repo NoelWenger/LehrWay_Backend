@@ -4,7 +4,7 @@ import pool from '../db.js'
 const router = express.Router()
 
 const usernameSQL =
-    "COALESCE(l.benutzername, u.username, 'Unbekannt')"
+    "COALESCE(u.username, l.benutzername, 'Unbekannt')"
 
 function parseRows(value) {
     try {

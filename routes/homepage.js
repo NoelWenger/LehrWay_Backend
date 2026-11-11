@@ -260,7 +260,7 @@ async function getOrCreateSchoolYear(connection, startJahr) {
             resourceMap.set(r.id, ins.insertId)
         }
 
-        // 2. Klassen kopieren
+        // 2. Klassen kopieren (mit INSERT IGNORE)
         const oldClasses = await connection.query(
             'SELECT id, bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche FROM klasse WHERE schuljahr_id = ?',
             [prevYearId]
@@ -268,28 +268,34 @@ async function getOrCreateSchoolYear(connection, startJahr) {
         const classMap = new Map()
         for (const c of oldClasses) {
             const ins = await connection.query(
-                'INSERT INTO klasse (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id) VALUES (?, ?, ?, ?, ?)',
+                'INSERT IGNORE INTO klasse (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id) VALUES (?, ?, ?, ?, ?)',
                 [c.bezeichnung, c.lehrgang_id, c.notizen, c.anzahl_schultage_woche, newYearId]
             )
-            const newClassId = ins.insertId
-            classMap.set(c.id, newClassId)
+            const newClassId = ins.insertId || (await connection.query(
+                'SELECT id FROM klasse WHERE bezeichnung = ? AND schuljahr_id = ?',
+                [c.bezeichnung, newYearId]
+            ))[0]?.id
 
-            await connection.query(
-                `INSERT INTO klasse_modul (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
-                 SELECT bezeichnung, lehrjahr, semester, quartal, lektionen, ?
-                 FROM klasse_modul WHERE klasse_id = ?`,
-                [newClassId, c.id]
-            )
+            if (newClassId) {
+                classMap.set(c.id, newClassId)
 
-            await connection.query(
-                `INSERT INTO klasse_label (klasse_id, label_id, farbe)
-                 SELECT ?, label_id, farbe
-                 FROM klasse_label WHERE klasse_id = ?`,
-                [newClassId, c.id]
-            )
+                await connection.query(
+                    `INSERT INTO klasse_modul (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
+                     SELECT bezeichnung, lehrjahr, semester, quartal, lektionen, ?
+                     FROM klasse_modul WHERE klasse_id = ?`,
+                    [newClassId, c.id]
+                )
+
+                await connection.query(
+                    `INSERT IGNORE INTO klasse_label (klasse_id, label_id, farbe)
+                     SELECT ?, label_id, farbe
+                     FROM klasse_label WHERE klasse_id = ?`,
+                    [newClassId, c.id]
+                )
+            }
         }
 
-        // 3. Schultage (klasse_ressource) kopieren
+        // 3. Schultage (klasse_ressource) kopieren (mit INSERT IGNORE)
         for (const [oldClassId, newClassId] of classMap.entries()) {
             const oldAssignments = await connection.query(
                 'SELECT ressourcen_id FROM klasse_ressource WHERE klasse_id = ?',
@@ -299,7 +305,7 @@ async function getOrCreateSchoolYear(connection, startJahr) {
                 const newResId = resourceMap.get(a.ressourcen_id)
                 if (newResId) {
                     await connection.query(
-                        'INSERT INTO klasse_ressource (klasse_id, ressourcen_id) VALUES (?, ?)',
+                        'INSERT IGNORE INTO klasse_ressource (klasse_id, ressourcen_id) VALUES (?, ?)',
                         [newClassId, newResId]
                     )
                 }
@@ -360,7 +366,8 @@ router.post('/klassen', route(async (req, res) => {
     const courseId = validId(req.body?.lehrgang_id, 'Lehrgang-ID')
     const startYear = parseYearParam(req)
 
-    const created = await transaction(async connection => {const year = await getOrCreateSchoolYear(connection, startYear)
+    const created = await transaction(async connection => {
+        const year = await getOrCreateSchoolYear(connection, startYear)
 
         const courses = await connection.query(
             'SELECT id FROM lehrgang WHERE id = ? LOCK IN SHARE MODE',
@@ -374,20 +381,20 @@ router.post('/klassen', route(async (req, res) => {
         await checkDuplicateClass(connection, name, year.id)
 
         const result = await connection.query(
-                `INSERT INTO klasse
-           (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id)
-           VALUES (?, ?, NULL, 0, ?)`,
-                [name, courseId, year.id],
-            )
+            `INSERT INTO klasse
+             (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id)
+             VALUES (?, ?, NULL, 0, ?)`,
+            [name, courseId, year.id],
+        )
 
         const classId = result.insertId
 
         await connection.query(
             `INSERT INTO klasse_modul
-       (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
-       SELECT bezeichnung, lehrjahr, semester, quartal, lektionen, ?
-       FROM lehrgang_modul
-       WHERE lehrgang_id = ?`,
+             (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
+             SELECT bezeichnung, lehrjahr, semester, quartal, lektionen, ?
+             FROM lehrgang_modul
+             WHERE lehrgang_id = ?`,
             [classId, courseId],
         )
 

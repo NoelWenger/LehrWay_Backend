@@ -358,8 +358,10 @@ router.get('/klassen', route(async (req, res) => {
 router.post('/klassen', route(async (req, res) => {
     const name = validClassName(req.body?.bezeichnung)
     const courseId = validId(req.body?.lehrgang_id, 'Lehrgang-ID')
+    const startYear = parseYearParam(req)
 
-    const created = await transaction(async connection => {
+    const created = await transaction(async connection => {const year = await getOrCreateSchoolYear(connection, startYear)
+
         const courses = await connection.query(
             'SELECT id FROM lehrgang WHERE id = ? LOCK IN SHARE MODE',
             [courseId],
@@ -369,14 +371,14 @@ router.post('/klassen', route(async (req, res) => {
             fail(404, 'Der ausgewählte Lehrgang existiert nicht mehr.')
         }
 
-        await checkDuplicateClass(connection, name)
+        await checkDuplicateClass(connection, name, year.id)
 
         const result = await connection.query(
-            `INSERT INTO klasse
-       (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche)
-       VALUES (?, ?, NULL, 0)`,
-            [name, courseId],
-        )
+                `INSERT INTO klasse
+           (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id)
+           VALUES (?, ?, NULL, 0, ?)`,
+                [name, courseId, year.id],
+            )
 
         const classId = result.insertId
 
@@ -404,8 +406,8 @@ router.put('/klassen/:id', route(async (req, res) => {
     const name = validClassName(req.body?.bezeichnung)
 
     await transaction(async connection => {
-        await requireClass(connection, id)
-        await checkDuplicateClass(connection, name, id)
+        const current = await requireClass(connection, id)
+        await checkDuplicateClass(connection, name, current.schuljahr_id, id)
 
         await connection.query(
             'UPDATE klasse SET bezeichnung = ? WHERE id = ?',
@@ -458,13 +460,18 @@ router.delete('/klassen/:id', route(async (req, res) => {
 // Räume
 // --------------------------------------------------
 
-router.get('/ressourcen', route(async (_req, res) => {
-    const rows = await pool.query(
-        `SELECT id, wochentag, anzahl_raeume
-     FROM ressourcen
-     ORDER BY id`,
-    )
-
+router.get('/ressourcen', route(async (req, res) => {
+    const startYear = parseYearParam(req)
+    const rows = await transaction(async connection => {
+        const year = await getOrCreateSchoolYear(connection, startYear)
+        return connection.query(
+            `SELECT id, wochentag, anzahl_raeume, schuljahr_id
+             FROM ressourcen
+             WHERE schuljahr_id = ?
+             ORDER BY id`,
+            [year.id]
+        )
+    })
     sendJson(res, rows)
 }))
 
@@ -525,13 +532,19 @@ router.put('/ressourcen/:id', route(async (req, res) => {
 // Schultage
 // --------------------------------------------------
 
-router.get('/klasse-ressourcen', route(async (_req, res) => {
-    const rows = await pool.query(
-        `SELECT DISTINCT klasse_id, ressourcen_id
-     FROM klasse_ressource
-     ORDER BY klasse_id, ressourcen_id`,
-    )
-
+router.get('/klasse-ressourcen', route(async (req, res) => {
+    const startYear = parseYearParam(req)
+    const rows = await transaction(async connection => {
+        const year = await getOrCreateSchoolYear(connection, startYear)
+        return connection.query(
+            `SELECT DISTINCT kr.klasse_id, kr.ressourcen_id
+             FROM klasse_ressource kr
+             INNER JOIN klasse k ON k.id = kr.klasse_id
+             WHERE k.schuljahr_id = ?
+             ORDER BY kr.klasse_id, kr.ressourcen_id`,
+            [year.id]
+        )
+    })
     sendJson(res, rows)
 }))
 
@@ -595,13 +608,19 @@ router.delete(
 // Konfliktregeln
 // --------------------------------------------------
 
-router.get('/regeln', route(async (_req, res) => {
-    const rows = await pool.query(
-        `SELECT id, klasse_a_id, klasse_b_id
-     FROM regel
-     ORDER BY id`,
-    )
-
+router.get('/regeln', route(async (req, res) => {
+    const startYear = parseYearParam(req)
+    const rows = await transaction(async connection => {
+        const year = await getOrCreateSchoolYear(connection, startYear)
+        return connection.query(
+            `SELECT r.id, r.klasse_a_id, r.klasse_b_id
+             FROM regel r
+             INNER JOIN klasse k ON k.id = r.klasse_a_id
+             WHERE k.schuljahr_id = ?
+             ORDER BY r.id`,
+            [year.id]
+        )
+    })
     sendJson(res, rows)
 }))
 

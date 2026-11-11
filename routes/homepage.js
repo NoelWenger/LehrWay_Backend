@@ -155,13 +155,15 @@ async function transaction(handler) {
 
 async function requireClass(connection, id) {
     const rows = await connection.query(
-        'SELECT id FROM klasse WHERE id = ? FOR UPDATE',
+        'SELECT id, schuljahr_id FROM klasse WHERE id = ? FOR UPDATE',
         [id],
     )
 
     if (rows.length === 0) {
         fail(404, 'Klasse nicht gefunden.')
     }
+
+    return rows[0]
 }
 
 async function requireResource(connection, id) {
@@ -175,14 +177,15 @@ async function requireResource(connection, id) {
     }
 }
 
-async function checkDuplicateClass(connection, name, excludedId = 0) {
+async function checkDuplicateClass(connection, name, schoolYearId, excludedId = 0) {
     const rows = await connection.query(
         `SELECT id
      FROM klasse
      WHERE LOWER(TRIM(bezeichnung)) = LOWER(?)
+       AND schuljahr_id = ?
        AND id <> ?
      LIMIT 1`,
-        [name, excludedId],
+        [name, schoolYearId, excludedId],
     )
 
     if (rows.length > 0) {
@@ -204,16 +207,151 @@ async function updateSchoolDayCount(connection, classId) {
 }
 
 // --------------------------------------------------
+// Schuljahr & Kopierlogik
+// --------------------------------------------------
+
+function parseYearParam(req) {
+    const raw = req.query?.year ?? req.body?.year ?? 2026
+    const year = Number(raw)
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        fail(400, 'Ungültiges Schuljahr angegeben.')
+    }
+    return year
+}
+
+async function getOrCreateSchoolYear(connection, startJahr) {
+    const existing = await connection.query(
+        'SELECT id, start_jahr, bezeichnung FROM schuljahr WHERE start_jahr = ? FOR UPDATE',
+        [startJahr]
+    )
+
+    if (existing.length > 0) {
+        return existing[0]
+    }
+
+    const nextShort = String(startJahr + 1).slice(-2)
+    const bezeichnung = `${startJahr}/${nextShort}`
+
+    const res = await connection.query(
+        'INSERT INTO schuljahr (start_jahr, bezeichnung) VALUES (?, ?)',
+        [startJahr, bezeichnung]
+    )
+    const newYearId = res.insertId
+
+    const prevYearRows = await connection.query(
+        'SELECT id FROM schuljahr WHERE start_jahr = ?',
+        [startJahr - 1]
+    )
+
+    if (prevYearRows.length > 0) {
+        const prevYearId = prevYearRows[0].id
+
+        // 1. Ressourcen kopieren
+        const oldResources = await connection.query(
+            'SELECT id, wochentag, anzahl_raeume FROM ressourcen WHERE schuljahr_id = ?',
+            [prevYearId]
+        )
+        const resourceMap = new Map()
+        for (const r of oldResources) {
+            const ins = await connection.query(
+                'INSERT INTO ressourcen (wochentag, anzahl_raeume, schuljahr_id) VALUES (?, ?, ?)',
+                [r.wochentag, r.anzahl_raeume, newYearId]
+            )
+            resourceMap.set(r.id, ins.insertId)
+        }
+
+        // 2. Klassen kopieren
+        const oldClasses = await connection.query(
+            'SELECT id, bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche FROM klasse WHERE schuljahr_id = ?',
+            [prevYearId]
+        )
+        const classMap = new Map()
+        for (const c of oldClasses) {
+            const ins = await connection.query(
+                'INSERT INTO klasse (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id) VALUES (?, ?, ?, ?, ?)',
+                [c.bezeichnung, c.lehrgang_id, c.notizen, c.anzahl_schultage_woche, newYearId]
+            )
+            const newClassId = ins.insertId
+            classMap.set(c.id, newClassId)
+
+            await connection.query(
+                `INSERT INTO klasse_modul (bezeichnung, lehrjahr, semester, quartal, lektionen, klasse_id)
+                 SELECT bezeichnung, lehrjahr, semester, quartal, lektionen, ?
+                 FROM klasse_modul WHERE klasse_id = ?`,
+                [newClassId, c.id]
+            )
+
+            await connection.query(
+                `INSERT INTO klasse_label (klasse_id, label_id, farbe)
+                 SELECT ?, label_id, farbe
+                 FROM klasse_label WHERE klasse_id = ?`,
+                [newClassId, c.id]
+            )
+        }
+
+        // 3. Schultage (klasse_ressource) kopieren
+        for (const [oldClassId, newClassId] of classMap.entries()) {
+            const oldAssignments = await connection.query(
+                'SELECT ressourcen_id FROM klasse_ressource WHERE klasse_id = ?',
+                [oldClassId]
+            )
+            for (const a of oldAssignments) {
+                const newResId = resourceMap.get(a.ressourcen_id)
+                if (newResId) {
+                    await connection.query(
+                        'INSERT INTO klasse_ressource (klasse_id, ressourcen_id) VALUES (?, ?)',
+                        [newClassId, newResId]
+                    )
+                }
+            }
+        }
+
+        // 4. Regeln kopieren
+        const oldRules = await connection.query(
+            `SELECT r.klasse_a_id, r.klasse_b_id 
+             FROM regel r
+             INNER JOIN klasse k ON k.id = r.klasse_a_id
+             WHERE k.schuljahr_id = ?`,
+            [prevYearId]
+        )
+        for (const r of oldRules) {
+            const newA = classMap.get(r.klasse_a_id)
+            const newB = classMap.get(r.klasse_b_id)
+            if (newA && newB) {
+                await connection.query(
+                    'INSERT IGNORE INTO regel (klasse_a_id, klasse_b_id) VALUES (?, ?)',
+                    [Math.min(newA, newB), Math.max(newA, newB)]
+                )
+            }
+        }
+    } else {
+        for (const tag of weekdays) {
+            await connection.query(
+                'INSERT INTO ressourcen (wochentag, anzahl_raeume, schuljahr_id) VALUES (?, 5, ?)',
+                [tag, newYearId]
+            )
+        }
+    }
+
+    return { id: newYearId, start_jahr: startJahr, bezeichnung }
+}
+
+// --------------------------------------------------
 // Klassen
 // --------------------------------------------------
 
-router.get('/klassen', route(async (_req, res) => {
-    const rows = await pool.query(
-        `SELECT id, bezeichnung, lehrgang_id
-     FROM klasse
-     ORDER BY bezeichnung`,
-    )
-
+router.get('/klassen', route(async (req, res) => {
+    const startYear = parseYearParam(req)
+    const rows = await transaction(async connection => {
+        const year = await getOrCreateSchoolYear(connection, startYear)
+        return connection.query(
+            `SELECT id, bezeichnung, lehrgang_id, schuljahr_id
+             FROM klasse
+             WHERE schuljahr_id = ?
+             ORDER BY bezeichnung`,
+            [year.id]
+        )
+    })
     sendJson(res, rows)
 }))
 

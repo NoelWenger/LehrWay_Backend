@@ -223,7 +223,25 @@ function target(req, result = {}) {
             values: [fieldId],
         }
     }
+    if (path === '/schuljahre/aus-vorjahr-kopieren') {
+        const startYear = Number(body.year)
 
+        return {
+            type: 'Schuljahr',
+            id: null,
+            sql: `
+                SELECT s.id,
+                       s.bezeichnung,
+                       (
+                           SELECT COUNT(*)
+                           FROM klasse k
+                           WHERE k.schuljahr_id = s.id
+                       ) AS anzahl_klassen
+                FROM schuljahr s
+                WHERE s.start_jahr = ?`,
+            values: [Number.isInteger(startYear) ? startYear : null],
+        }
+    }
     throw new Error(
         'Für diese Änderung fehlt die Protokollierung: ' +
         path,

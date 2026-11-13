@@ -213,27 +213,54 @@ async function updateSchoolDayCount(connection, classId) {
 function parseYearParam(req) {
     const raw = req.query?.year ?? req.body?.year ?? 2026
     const year = Number(raw)
-    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
-        fail(400, 'Ungültiges Schuljahr angegeben.')
+    if (!Number.isInteger(year) || year < 2000 || year > 2036) {
+        fail(400, 'Ungültiges Schuljahr. Das letzte verfügbare Schuljahr ist 2036/37.')
     }
     return year
 }
 
 async function copyYearData(connection, sourceYearId, targetYearId) {
-    // 1. Ressourcen kopieren
+    // 1. Ressourcen nach Wochentag zuordnen
     const oldResources = await connection.query(
-        'SELECT id, wochentag, anzahl_raeume FROM ressourcen WHERE schuljahr_id = ?',
-        [sourceYearId]
+        `SELECT id, wochentag, anzahl_raeume
+         FROM ressourcen WHERE schuljahr_id = ?`,
+        [sourceYearId],
     )
-    const resourceMap = new Map()
-    for (const r of oldResources) {
-        const ins = await connection.query(
-            'INSERT INTO ressourcen (wochentag, anzahl_raeume, schuljahr_id) VALUES (?, ?, ?)',
-            [r.wochentag, r.anzahl_raeume, targetYearId]
-        )
-        resourceMap.set(r.id, ins.insertId)
+
+    const targetResources = await connection.query(
+        `SELECT id, wochentag
+         FROM ressourcen WHERE schuljahr_id = ?
+         ORDER BY id
+         FOR UPDATE`,
+        [targetYearId],
+    )
+
+    const resourceByDay = new Map()
+    for (const resource of targetResources) {
+        if (resourceByDay.has(resource.wochentag)) {
+            fail(409, 'Im Zieljahr gibt es mehrere Raumeinträge für denselben Wochentag.')
+        }
+        resourceByDay.set(resource.wochentag, resource.id)
     }
 
+    const resourceMap = new Map()
+    for (const resource of oldResources) {
+        let targetId = resourceByDay.get(resource.wochentag)
+
+        if (targetId === undefined) {
+            const inserted = await connection.query(
+                `INSERT INTO ressourcen
+                    (wochentag, anzahl_raeume, schuljahr_id)
+                 VALUES (?, ?, ?)`,
+                [resource.wochentag, resource.anzahl_raeume, targetYearId],
+            )
+
+            targetId = inserted.insertId
+            resourceByDay.set(resource.wochentag, targetId)
+        }
+
+        resourceMap.set(resource.id, targetId)
+    }
     // 2. Klassen kopieren
     const oldClasses = await connection.query(
         'SELECT id, bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche FROM klasse WHERE schuljahr_id = ?',
@@ -242,8 +269,16 @@ async function copyYearData(connection, sourceYearId, targetYearId) {
     const classMap = new Map()
     for (const c of oldClasses) {
         const ins = await connection.query(
-            'INSERT IGNORE INTO klasse (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id) VALUES (?, ?, ?, ?, ?)',
-            [c.bezeichnung, c.lehrgang_id, c.notizen, c.anzahl_schultage_woche, targetYearId]
+            `INSERT INTO klasse
+                (bezeichnung, lehrgang_id, notizen, anzahl_schultage_woche, schuljahr_id)
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+                c.bezeichnung,
+                c.lehrgang_id,
+                c.notizen,
+                c.anzahl_schultage_woche,
+                targetYearId,
+            ],
         )
         const newClassId = ins.insertId || (await connection.query(
             'SELECT id FROM klasse WHERE bezeichnung = ? AND schuljahr_id = ?',
@@ -309,56 +344,114 @@ async function copyYearData(connection, sourceYearId, targetYearId) {
 }
 
 async function getOrCreateSchoolYear(connection, startJahr) {
-    let existing = await connection.query(
-        'SELECT id, start_jahr, bezeichnung FROM schuljahr WHERE start_jahr = ?',
-        [startJahr]
+    const existing = await connection.query(
+        `SELECT id, start_jahr, bezeichnung
+         FROM schuljahr
+         WHERE start_jahr = ?`,
+        [startJahr],
     )
 
     if (existing.length > 0) {
         return existing[0]
     }
 
-    const nextShort = String(startJahr + 1).slice(-2)
-    const bezeichnung = `${startJahr}/${nextShort}`
+    const bezeichnung = `${startJahr}/${String(startJahr + 1).slice(-2)}`
 
-    await connection.query(
+    const inserted = await connection.query(
         'INSERT IGNORE INTO schuljahr (start_jahr, bezeichnung) VALUES (?, ?)',
-        [startJahr, bezeichnung]
+        [startJahr, bezeichnung],
     )
 
-    existing = await connection.query(
-        'SELECT id, start_jahr, bezeichnung FROM schuljahr WHERE start_jahr = ?',
-        [startJahr]
-    )
-    const newYearId = existing[0].id
-
-    const existingClasses = await connection.query(
-        'SELECT id FROM klasse WHERE schuljahr_id = ? LIMIT 1',
-        [newYearId]
+    const [year] = await connection.query(
+        `SELECT id, start_jahr, bezeichnung
+         FROM schuljahr
+         WHERE start_jahr = ?
+         FOR UPDATE`,
+        [startJahr],
     )
 
-    if (existingClasses.length === 0) {
-        const prevYearRows = await connection.query(
-            'SELECT id FROM schuljahr WHERE start_jahr = ?',
-            [startJahr - 1]
-        )
+    if (!year) {
+        fail(500, 'Das Schuljahr konnte nicht angelegt werden.')
+    }
 
-        if (prevYearRows.length > 0) {
-            const prevYearId = prevYearRows[0].id
-            await copyYearData(connection, prevYearId, newYearId)
-        } else {
-            for (const tag of weekdays) {
-                await connection.query(
-                    'INSERT IGNORE INTO ressourcen (wochentag, anzahl_raeume, schuljahr_id) VALUES (?, 5, ?)',
-                    [tag, newYearId]
-                )
-            }
+    if (Number(inserted.affectedRows) === 0) {
+        return year
+    }
+
+    const [previousYear] = await connection.query(
+        'SELECT id FROM schuljahr WHERE start_jahr = ?',
+        [startJahr - 1],
+    )
+
+    if (previousYear) {
+        await copyYearData(connection, previousYear.id, year.id)
+    } else {
+        for (const tag of weekdays) {
+            await connection.query(
+                `INSERT INTO ressourcen
+                    (wochentag, anzahl_raeume, schuljahr_id)
+                 VALUES (?, 5, ?)`,
+                [tag, year.id],
+            )
         }
     }
 
-    return { id: newYearId, start_jahr: startJahr, bezeichnung }
+    return year
 }
+router.post('/schuljahre/aus-vorjahr-kopieren', route(async (req, res) => {
+    const startYear = parseYearParam(req)
 
+    const result = await transaction(async connection => {
+        const [target] = await connection.query(
+            `SELECT id FROM schuljahr
+             WHERE start_jahr = ?
+             FOR UPDATE`,
+            [startYear],
+        )
+
+        if (!target) {
+            fail(404, 'Öffne zuerst das Schuljahr, das du befüllen möchtest.')
+        }
+
+        const [existingClass] = await connection.query(
+            `SELECT id FROM klasse
+             WHERE schuljahr_id = ?
+             LIMIT 1
+             FOR UPDATE`,
+            [target.id],
+        )
+
+        if (existingClass) {
+            fail(409, 'Die Übernahme ist nur bei einem leeren Schuljahr möglich.')
+        }
+
+        const [source] = await connection.query(
+            'SELECT id FROM schuljahr WHERE start_jahr = ?',
+            [startYear - 1],
+        )
+
+        if (!source) {
+            fail(409, 'Das direkte Vorjahr wurde noch nicht angelegt.')
+        }
+
+        const [sourceClass] = await connection.query(
+            `SELECT id FROM klasse
+             WHERE schuljahr_id = ?
+             LIMIT 1`,
+            [source.id],
+        )
+
+        if (!sourceClass) {
+            fail(409, 'Im direkten Vorjahr gibt es keine Klassen zum Übernehmen.')
+        }
+
+        await copyYearData(connection, source.id, target.id)
+
+        return { success: true }
+    })
+
+    res.json(result)
+}))
 // --------------------------------------------------
 // Klassen
 // --------------------------------------------------

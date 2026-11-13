@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import bcrypt from 'bcrypt'
+import { migrateSchoolYearIndex } from './migrateSchoolYearIndex.js'
 
 import pool, {
     testConnection,
@@ -282,7 +283,8 @@ app.use('/api', (_req, res) => {
 })
 
 await testConnection()
-
+await testConnection()
+await migrateSchoolYearIndex()
 app.listen(PORT, () => {
     console.log(
         'Server läuft auf Port ' + PORT,

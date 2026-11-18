@@ -1,105 +1,167 @@
-# Lehrway – Backend & Datenbank
+# Lehrway Backend: Datenbank und API für die gemeinsame Schulplanung
 
-Lehrway ist eine Webanwendung zur Planung und Verwaltung von Lehrgängen, Modulen und Klassen. Dieses Repository umfasst den **Backend- beziehungsweise Datenbankteil** des Projekts. Ziel ist es, die Daten für die Wochenübersicht, Lehrgangsplanung und Klassenverwaltung strukturiert bereitzustellen.
+IPT 8.1 · Node.js · Express · MariaDB · Docker
 
-> **Entwicklungsstand:** Der vorliegende Code beschreibt die MySQL-Datenbank (DDL) und ihre Beispieldaten (DML). Die Datenbankabfragen (DQL) sind noch in Bearbeitung. Ein implementierter API-Server wurde für diese Dokumentation nicht bereitgestellt.
+Lehrway ist eine Webanwendung für die gemeinsame Schulplanung. Dieses Repository enthält das Backend: die MariaDB Datenbank mit Struktur und Testdaten sowie die Express API, die das Lehrway Frontend mit Daten versorgt. Das Backend speichert Lehrgänge, Module, Klassen, Labels, Regeln und Raumkapazitäten, verwaltet Benutzerkonten mit Sitzungen und protokolliert Änderungen für den Änderungsverlauf.
 
-## Projektteam
+Das Frontend liegt in einem eigenen Repository. Dort sind die Wochenansicht, die Lehrgangsplanung und der Änderungsverlauf umgesetzt.
 
-- Luka
-- Noel
-- Khalil
-- Kenan
+## Nutzen und Ziele
 
+- **Eine gemeinsame Datenbank für das ganze Team.** Alle arbeiten über das Backend auf denselben Daten, damit alle dieselbe Planung sehen.
+- **Lehrgänge als Vorlage für Klassen.** Ein Lehrgang enthält die Module mit Lehrjahr, Quartal und Lektionen. Jede Klasse besitzt eigene Module, die bei der Erstellung aus dem Lehrgang kopiert werden und danach unabhängig angepasst werden können.
+- **Planungsregeln und Raumkapazitäten speichern.** Regeln zwischen Klassen und die Anzahl Räume pro Wochentag liegen in der Datenbank. So kann das Frontend Konflikte anzeigen.
+- **Änderungen nachvollziehen.** Das Protokoll speichert Benutzer, Aktion und betroffenes Objekt sowie den Zustand vorher und nachher als JSON.
+- **Sichere Anmeldung.** Passwörter werden nur als Hash gespeichert. Sitzungen laufen nach 8 Stunden ab.
 
+## Funktionen
 
-## Technologie
+| Bereich | Was das Backend übernimmt |
+|---|---|
+| Benutzerkonto | Registrierung mit Anzeigename, E-Mail und Passwort, Anmeldung und Sitzung über ein Cookie |
+| Lehrgänge und Module | Lehrgänge anlegen, umbenennen und löschen, Module mit Lehrjahr, Semester, Quartal, Quartalsspanne und Lektionen verwalten |
+| Klassen | Klassen pro Schuljahr mit Lehrgang, Notizen und Anzahl Schultage pro Woche speichern, eigene Klassenmodule führen |
+| Wochenplan | Anzahl Räume pro Wochentag und Schuljahr speichern, Klassen den Wochentagen zuordnen |
+| Regeln und Labels | Klassenpaare festhalten, die nicht am selben Tag Unterricht haben sollen, und farbige Labels mit Klassen verknüpfen |
+| Änderungsverlauf | Aktionen mit Benutzer, Zeitpunkt und Vorher Nachher Zustand im Protokoll ablegen |
 
-- **MySQL:** relationales Datenbanksystem
-- **SQL:** DDL zum Erstellen der Struktur und DML zum Einfügen von Testdaten
+## Architektur
 
-## Datenbankaufbau
+```mermaid
+flowchart LR
+    Browser["Frontend · Vue 3, TypeScript, Vite"]
+    API["Backend · Node.js und Express im Docker Container"]
+    DB[("MariaDB")]
 
-Die Datenbank heisst `lehrway` und enthält elf Tabellen:
+    Browser <-->|"HTTP und JSON · Sitzungscookie"| API
+    API <-->|SQL| DB
+```
+
+Dieses Repository enthält das Backend und die Datenbank. Das Frontend befindet sich im Lehrway Frontend Repository.
+
+## Datenbank
+
+Die Datenbank heisst `lehrway` und enthält dreizehn Tabellen.
 
 | Tabelle | Aufgabe |
-| --- | --- |
-| `lehrgang` | Lehrgänge mit Bezeichnung und Semesteranzahl speichern |
-| `lehrgang_modul` | Module eines Lehrgangs samt zeitlicher Einteilung und Lektionen erfassen |
-| `klasse` | Klassen einem Lehrgang zuordnen und Notizen sowie Schultage speichern |
-| `klasse_modul` | Individuelle Moduldaten einer Klasse verwalten |
-| `label` | Verfügbare Labels definieren |
-| `klasse_label` | Klassen und Labels miteinander verknüpfen |
-| `regel` | Klassenpaare erfassen, die gemäss Planung nicht am selben Tag stattfinden sollen |
-| `ressourcen` | Anzahl verfügbarer Räume pro Wochentag speichern |
-| `klasse_ressource` | Klassen den jeweiligen Wochentags-Ressourcen zuordnen |
-| `user` | Benutzernamen, E-Mail-Adressen und Passwort-Hashes speichern |
-| `log` | Aktionen mit Bezug zu Lehrgang und Benutzer protokollieren |
+|---|---|
+| `schuljahr` | Schuljahre wie 2026/27, an denen Klassen und Raumkapazitäten hängen |
+| `lehrgang` | Lehrgänge mit Bezeichnung und Semesteranzahl |
+| `lehrgang_modul` | Module eines Lehrgangs mit Lehrjahr, Semester, Quartal, Quartalsspanne und Lektionen |
+| `klasse` | Klassen mit Lehrgang, Schuljahr, Notizen und Schultagen pro Woche |
+| `klasse_modul` | Eigene Kopie der Module einer Klasse, unabhängig vom Lehrgang änderbar |
+| `label` | Labels mit Name und Farbe |
+| `klasse_label` | Verknüpfung von Klassen und Labels mit Farbe |
+| `regel` | Klassenpaare, die nicht am selben Tag Unterricht haben sollen |
+| `ressourcen` | Anzahl verfügbarer Räume pro Wochentag und Schuljahr |
+| `klasse_ressource` | Zuordnung von Klassen zu den Wochentagen |
+| `user` | Benutzername, E-Mail, Passworthash und letzte Aktivität |
+| `app_session` | Angemeldete Sitzungen mit gehashtem Token und Ablaufzeit |
+| `log` | Protokoll mit Lehrgang, Benutzer, Aktion, Objekt sowie Zustand vorher und nachher |
 
 ### Beziehungen
 
-- Ein **Lehrgang** kann mehrere Lehrgangsmodule und mehrere Klassen besitzen.
-- Eine **Klasse** gehört über `lehrgang_id` zu einem Lehrgang und kann mehrere eigene Klassenmodule besitzen.
-- **Klassen und Labels** sind über `klasse_label` miteinander verbunden (n:m).
-- **Klassen und Ressourcen** sind über `klasse_ressource` miteinander verbunden (n:m).
-- Eine **Regel** verweist auf zwei verschiedene Klassen (`klasse_a_id`, `klasse_b_id`).
-- Ein **Logeintrag** verweist auf einen Lehrgang und einen Benutzer.
+```mermaid
+erDiagram
+    LEHRGANG ||--o{ LEHRGANG_MODUL : hat
+    LEHRGANG ||--o{ KLASSE : "ist Vorlage für"
+    SCHULJAHR ||--o{ KLASSE : hat
+    SCHULJAHR ||--o{ RESSOURCEN : hat
+    KLASSE ||--o{ KLASSE_MODUL : hat
+    KLASSE ||--o{ KLASSE_LABEL : hat
+    LABEL ||--o{ KLASSE_LABEL : hat
+    KLASSE ||--o{ KLASSE_RESSOURCE : hat
+    RESSOURCEN ||--o{ KLASSE_RESSOURCE : hat
+    KLASSE ||--o{ REGEL : "klasse_a"
+    KLASSE ||--o{ REGEL : "klasse_b"
+    USER ||--o{ APP_SESSION : hat
+    USER ||--o{ LOG : schreibt
+    LEHRGANG ||--o{ LOG : betrifft
+```
 
-Die Beziehungen werden durch Fremdschlüssel abgesichert. Eindeutige Werte sind unter anderem für Klassennamen, Labelnamen, Benutzernamen und E-Mail-Adressen vorgesehen.
+Die Beziehungen sind durch Fremdschlüssel abgesichert. Eindeutig sind der Klassenname pro Schuljahr, der Labelname, der Benutzername und die E-Mail. Eine Regel verweist immer auf zwei verschiedene Klassen, und jedes Klassenpaar kann nur einmal vorkommen.
 
-## Entity-Relationship-Modell (ERM)
+## API
 
-Das **Entity-Relationship-Modell (ERM)** dokumentiert die Datenbankstruktur grafisch und ergänzt die Tabellen- und Beziehungsbeschreibungen dieser README.
+Die API ist unter `http://localhost:3000/api` erreichbar und tauscht JSON aus. Die Anmeldung läuft über ein Sitzungscookie. Auszug der Routen:
 
-📄 **[ERM-Diagramm ansehen](docs/ERM_Diagramm_3Edition.pdf)**
+| Methode | Pfad | Aufgabe |
+|---|---|---|
+| POST | `/api/register` | Konto mit Anzeigename, E-Mail und Passwort erstellen |
+| POST | `/api/login` | Anmelden und Sitzung starten |
+| GET | `/api/lehrgaenge` | Alle Lehrgänge laden |
+| POST | `/api/lehrgaenge` | Lehrgang mit Bezeichnung und Semesteranzahl erstellen |
+| PUT | `/api/lehrgaenge/:id` | Lehrgang umbenennen |
+| DELETE | `/api/lehrgaenge/:id` | Lehrgang löschen |
+| GET | `/api/lehrgaenge/:id/module` | Module eines Lehrgangs laden |
+| POST | `/api/lehrgaenge/:id/module` | Modul oder Quartalsfeld hinzufügen |
+| PUT | `/api/lehrgang-module/:id` | Lektionen eines Quartalsfelds ändern |
+| DELETE | `/api/lehrgang-module/:id` | Quartalsfeld löschen |
 
+## Lokal starten
 
-## Zentrale Funktionen der Datenbank
+Voraussetzungen: Git, Docker Desktop mit Docker Compose und Zugang zu einer MariaDB Datenbank. Das ist entweder die gemeinsame Datenbank auf Plesk oder eine lokale Datenbank im Container.
 
-### Lehrgänge und Module
+1. Repository klonen und in den Ordner wechseln.
+2. Datei `.env` anlegen, am besten als Kopie von `.env.example`:
 
-Ein Lehrgang besitzt eine Bezeichnung und eine Anzahl Semester. Die zugehörigen Module enthalten Lehrjahr, Semester, Quartal und Lektionen. Dadurch können verschiedene Ausbildungsgänge mit eigenen Lehrplänen erfasst werden.
+```
+DB_HOST=Server der Datenbank
+DB_PORT=3306
+DB_USER=Datenbankbenutzer
+DB_PASSWORD=Passwort der Datenbank
+DB_NAME=lehrway
+FRONTEND_ORIGINS=http://localhost:5173
+```
 
-### Klassen und individuelle Lehrpläne
+3. Datenbank vorbereiten: `db/DDL_Lehrway.sql` ausführen, danach `db/DML_Lehrways.sql`. Das DDL muss immer zuerst laufen. Läuft die Datenbank als lokaler Container, führt MariaDB beim ersten Start alle Dateien im Ordner `db` automatisch aus.
+4. Backend bauen und starten:
 
-Jede Klasse ist einem Lehrgang zugeordnet. Ihre Module werden in `klasse_modul` separat gespeichert. Das erlaubt grundsätzlich, den Modulplan einer Klasse unabhängig von der ursprünglichen Lehrgangsvorlage anzupassen. Beim Einfügen der Beispieldaten werden die Lehrgangsmodule zunächst in die jeweiligen Klassenmodule kopiert.
+```bash
+docker compose up -d --build
+```
 
-### Labels
+5. Prüfen, ob alles läuft:
 
-Labels dienen zur Kennzeichnung von Klassen, beispielsweise nach Ausbildungsweg oder besonderen Merkmalen. Eine Klasse kann mehrere Labels besitzen, und ein Label kann mehreren Klassen zugeordnet sein.
+```bash
+docker compose logs backend
+```
 
-### Regeln und Raumplanung
+Im Log erscheinen die Meldungen `Server läuft auf Port 3000` und `Erfolgreich mit MariaDB verbunden!`.
+6. Das Frontend wie in dessen README beschrieben starten. Es verwendet standardmässig `http://localhost:3000/api`.
 
-In `regel` werden Klassenpaare gespeichert, die bei der Wochenplanung nicht am selben Tag eingeplant werden sollen. `ressourcen` enthält die Raumkapazität je Wochentag. Die Tabelle `klasse_ressource` ordnet Klassen den betreffenden Wochentagen zu.
+Die Datei `.env` gehört nie ins Repository. Die Zugangsdaten teilt das Team privat.
 
-**Wichtig:** Die Tabellen speichern Regeln und Zuordnungen. Eine automatische Konfliktprüfung oder Durchsetzung der Planungsregeln ist durch das vorliegende SQL allein noch nicht nachgewiesen und muss in Abfragen beziehungsweise Backend-Logik umgesetzt werden. Nach der Finalisierung von DQL wird diese Nachricht gelöscht.
+### Nützliche Befehle
 
-### Benutzer und Protokollierung
+| Befehl | Wirkung |
+|---|---|
+| `docker compose up -d --build` | Backend bauen und starten, nach jeder Codeänderung nötig |
+| `docker compose ps` | Status der Container anzeigen |
+| `docker compose logs backend` | Meldungen des Backends anzeigen |
+| `docker compose down` | Container stoppen |
+| `docker compose down -v` | Container stoppen und die lokale Datenbank löschen |
 
-Die Tabelle `user` sieht Benutzernamen, eindeutige E-Mail-Adressen, Passwort-Hashes und einen Zeitstempel für die letzte Aktivität vor. `log` ermöglicht das Speichern von Beschreibungen einzelner Aktionen mit Benutzer- und Lehrgangsbezug.
+### Häufige Probleme
 
+| Meldung oder Verhalten | Ursache und Lösung |
+|---|---|
+| `Access denied for user` | Benutzer oder Passwort in `.env` stimmen nicht. Bei einem lokalen Datenbank Container wird das Passwort nur beim ersten Erstellen gesetzt, danach hilft `docker compose down -v`. |
+| `ECONNREFUSED` | Die Datenbank ist noch nicht bereit oder `DB_HOST` ist falsch. Im Container ist `localhost` das Backend selbst, bei einem lokalen Datenbank Container heisst der Host `db`. |
+| `Table ... doesn't exist` | Das DDL wurde nicht ausgeführt. Zuerst das DDL, danach das DML ausführen. |
+| Anmeldung schlägt fehl und im Log steht `app_session` | Die Tabelle `app_session` fehlt. Das aktuelle DDL ausführen. |
+| Anmeldung mit `khalil@lehrway.ch` oder `noel@lehrway.ch` klappt nicht | Die Testkonten haben Platzhalter statt echter Passworthashes. Stattdessen über die Registrierung ein neues Konto erstellen. |
 
+Wichtig: Das DDL löscht zuerst alle Tabellen und erstellt sie neu. Auf der gemeinsamen Datenbank gehen dadurch alle Daten und Konten verloren. Das Team sollte sich vorher absprechen.
 
+## Dokumentation
 
-## Aktueller Entwicklungsstand
+| Datei | Inhalt |
+|---|---|
+| `db/DDL_Lehrway.sql` | Struktur der Datenbank mit allen Tabellen |
+| `db/DML_Lehrways.sql` | Testdaten für Lehrgänge, Module, Klassen, Labels, Räume und Regeln |
+| `.env.example` | Vorlage für die Zugangsdaten |
 
-| Bereich | Status |
-| --- | --- |
-| Datenbankstruktur (DDL) | Vorhanden |
-| Beispieldaten (DML) | Vorhanden |
-| Datenbankabfragen (DQL) | In Bearbeitung |
+## Projektteam
 
-## Mögliche nächste Schritte
-
-1. DQL-Abfragen für Lehrgänge, Klassen, Module, Labels, Räume und Regeln ausarbeiten.
-2. Eine Backend-API entwickeln, über die das Frontend Daten lesen und verändern kann.
-3. Registrierung und Login mit sicherem Passwort-Hashing und geeigneter Authentifizierung umsetzen.
-4. Konfliktprüfungen für Klassenregeln und Raumkapazitäten ergänzen.
-5. Eingaben validieren, Fehlerfälle behandeln und Zugriffsrechte definieren.
-6. Tests für Datenbankzugriffe und die Schnittstelle zum Frontend erstellen.
-
-## Verbindung zum Frontend
-
-Das separate Lehrway-Frontend stellt unter anderem eine Wochenübersicht, Klassenverwaltung und Lehrgangsplanung bereit. Die Datenbank soll die dafür benötigten Informationen dauerhaft speichern. Die konkrete API-Struktur, die Servertechnologie und die Verbindungs-Konfiguration werden dokumentiert, sobald der entsprechende Backend-Code vorliegt.
-
-
+Lehrway entstand im Rahmen der Projektarbeit IPT 8.1. Zum Team gehören Luka, Noel, Khalil und Kenan.

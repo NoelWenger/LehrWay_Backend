@@ -20,10 +20,6 @@
 -- Current Database: `lehrway`
 --
 
-CREATE DATABASE /*!32312 IF NOT EXISTS*/ `lehrway` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci */;
-
-USE `lehrway`;
-
 --
 -- Table structure for table `klasse`
 --

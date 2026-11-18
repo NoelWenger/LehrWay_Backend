@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS schuljahr (
 
                                          id INT AUTO_INCREMENT PRIMARY KEY,
 
+<<<<<<< HEAD
                                          start_jahr INT NOT NULL UNIQUE,
 
                                          bezeichnung VARCHAR(20) NOT NULL
@@ -61,6 +62,11 @@ ALTER TABLE ressourcen
 -- Gleicher Klassenname ist in unterschiedlichen Schuljahren erlaubt
 
 ALTER TABLE klasse
+=======
+--
+-- Table structure for table `klasse`
+--
+>>>>>>> 13315f07d7a4ebdc384322eed2f31a2b6322666e
 
     ADD UNIQUE INDEX IF NOT EXISTS
 
@@ -74,6 +80,7 @@ ALTER TABLE klasse
 
 DROP INDEX IF EXISTS bezeichnung;
 
+<<<<<<< HEAD
 
 -- Beziehungen zu Schuljahren ergänzen
 
@@ -91,6 +98,39 @@ ALTER TABLE ressourcen
 
 
 -- Login-Sitzungen ergänzen
+=======
+--
+-- Dumping data for table `klasse_modul`
+--
+
+SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
+LOCK TABLES `klasse_modul` WRITE;
+/*!40000 ALTER TABLE `klasse_modul` DISABLE KEYS */;
+INSERT INTO `klasse_modul` VALUES
+(1,'M114 Codierungen',1,1,1,40,1),
+(2,'M231 Datenschutz',1,1,2,20,1),
+(3,'M104 Datenmodelle',1,2,3,60,1),
+(4,'M293 Webauftritt',1,2,4,80,1),
+(5,'M319 Applikationen entwerfen',2,1,1,80,1),
+(6,'M426 Agile Methoden',2,2,3,40,1),
+(8,'M114 Codierungen',1,1,1,40,2),
+(9,'M231 Datenschutz',1,1,2,20,2),
+(10,'M104 Datenmodelle',1,2,3,60,2),
+(11,'M293 Webauftritt',1,2,4,80,2),
+(12,'M319 Applikationen entwerfen',2,1,1,80,2),
+(13,'M426 Agile Methoden',2,2,3,40,2),
+(15,'M114 Codierungen',1,1,1,40,3),
+(16,'M123 Server betreiben',1,2,3,60,3),
+(17,'M431 Aufgaben selbstst├ñndig planen',2,1,2,20,3),
+(18,'M347 Container',2,2,4,40,3),
+(22,'M117 Netzwerk realisieren',1,1,2,60,4),
+(23,'M129 LAN Komponenten',1,2,3,80,4),
+(24,'M159 Verzeichnisdienst',2,1,1,60,4);
+/*!40000 ALTER TABLE `klasse_modul` ENABLE KEYS */;
+UNLOCK TABLES;
+COMMIT;
+SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
+>>>>>>> 13315f07d7a4ebdc384322eed2f31a2b6322666e
 
 CREATE TABLE IF NOT EXISTS app_session (
 
@@ -147,14 +187,48 @@ ALTER TABLE log
 
     benutzername VARCHAR(50) NULL,
 
+<<<<<<< HEAD
     ADD COLUMN IF NOT EXISTS
+=======
+DROP TABLE IF EXISTS `user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(50) DEFAULT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `passwort_hash` varchar(255) DEFAULT NULL,
+  `zuletzt_aktiv` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `username` (`username`),
+  UNIQUE KEY `email` (`email`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+>>>>>>> 13315f07d7a4ebdc384322eed2f31a2b6322666e
 
     aktion VARCHAR(80) NULL,
 
+<<<<<<< HEAD
     ADD COLUMN IF NOT EXISTS
+=======
+SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
+LOCK TABLES `user` WRITE;
+/*!40000 ALTER TABLE `user` DISABLE KEYS */;
+INSERT INTO `user` VALUES
+(1,'khalil','khalil@lehrway.ch','hash1',NULL),
+(2,'noel','noel@lehrway.ch','hash2',NULL),
+(3,'hello_world','hello_world@gmail.com','$2b$10$itkjPoORnl2YOblzuYmEE.ZTg2GPlxE8aEOmXpE7l1aJD/UGwrhUa','2026-11-04 10:28:50'),
+(4,'lol','lol@lol.lol','$2b$10$iYKMzib97brBNJQXzAafAOL5tJKWeWWWpCgxxTpz.sFKXFvdWTNci','2026-11-11 09:51:01');
+/*!40000 ALTER TABLE `user` ENABLE KEYS */;
+UNLOCK TABLES;
+COMMIT;
+SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+>>>>>>> 13315f07d7a4ebdc384322eed2f31a2b6322666e
 
     objekt_typ VARCHAR(50) NULL,
 
+<<<<<<< HEAD
     ADD COLUMN IF NOT EXISTS
 
     objekt_id INT NULL,
@@ -186,3 +260,6 @@ SHOW COLUMNS FROM label LIKE 'farbe';
 
 SHOW COLUMNS FROM log;
  
+=======
+-- Dump completed on 2026-11-18  9:35:07
+>>>>>>> 13315f07d7a4ebdc384322eed2f31a2b6322666e

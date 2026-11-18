@@ -20,11 +20,9 @@
 -- Current Database: `lehrway`
 --
 
-USE `lehrway_DB`;
+CREATE DATABASE /*!32312 IF NOT EXISTS*/ `lehrway` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_uca1400_ai_ci */;
 
-
-
-
+USE `lehrway`;
 
 --
 -- Table structure for table `klasse`
@@ -43,7 +41,7 @@ CREATE TABLE `klasse` (
   UNIQUE KEY `bezeichnung` (`bezeichnung`),
   KEY `lehrgang_id` (`lehrgang_id`),
   CONSTRAINT `klasse_ibfk_1` FOREIGN KEY (`lehrgang_id`) REFERENCES `lehrgang` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -77,7 +75,7 @@ CREATE TABLE `klasse_label` (
   KEY `label_id` (`label_id`),
   CONSTRAINT `klasse_label_ibfk_1` FOREIGN KEY (`klasse_id`) REFERENCES `klasse` (`id`),
   CONSTRAINT `klasse_label_ibfk_2` FOREIGN KEY (`label_id`) REFERENCES `label` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -117,14 +115,12 @@ CREATE TABLE `klasse_modul` (
   PRIMARY KEY (`id`),
   KEY `klasse_id` (`klasse_id`),
   CONSTRAINT `klasse_modul_ibfk_1` FOREIGN KEY (`klasse_id`) REFERENCES `klasse` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-
 
 --
 -- Dumping data for table `klasse_modul`
 --
-
 
 SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
 LOCK TABLES `klasse_modul` WRITE;
@@ -168,7 +164,7 @@ CREATE TABLE `klasse_ressource` (
   KEY `ressourcen_id` (`ressourcen_id`),
   CONSTRAINT `klasse_ressource_ibfk_1` FOREIGN KEY (`klasse_id`) REFERENCES `klasse` (`id`),
   CONSTRAINT `klasse_ressource_ibfk_2` FOREIGN KEY (`ressourcen_id`) REFERENCES `ressourcen` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -205,7 +201,7 @@ CREATE TABLE `label` (
   `name` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -237,7 +233,7 @@ CREATE TABLE `lehrgang` (
   `bezeichnung` varchar(255) DEFAULT NULL,
   `semesteranzahl` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -275,7 +271,7 @@ CREATE TABLE `lehrgang_modul` (
   PRIMARY KEY (`id`),
   KEY `lehrgang_id` (`lehrgang_id`),
   CONSTRAINT `lehrgang_modul_ibfk_1` FOREIGN KEY (`lehrgang_id`) REFERENCES `lehrgang` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=14 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -322,7 +318,7 @@ CREATE TABLE `log` (
   KEY `user_id` (`user_id`),
   CONSTRAINT `log_ibfk_1` FOREIGN KEY (`lehrgang_id`) REFERENCES `lehrgang` (`id`),
   CONSTRAINT `log_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -359,7 +355,7 @@ CREATE TABLE `regel` (
   CONSTRAINT `regel_ibfk_1` FOREIGN KEY (`klasse_a_id`) REFERENCES `klasse` (`id`),
   CONSTRAINT `regel_ibfk_2` FOREIGN KEY (`klasse_b_id`) REFERENCES `klasse` (`id`),
   CONSTRAINT `CONSTRAINT_1` CHECK (`klasse_a_id` <> `klasse_b_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -390,7 +386,7 @@ CREATE TABLE `ressourcen` (
   `wochentag` varchar(20) DEFAULT NULL,
   `anzahl_raeume` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -427,7 +423,7 @@ CREATE TABLE `user` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -440,7 +436,8 @@ LOCK TABLES `user` WRITE;
 INSERT INTO `user` VALUES
 (1,'khalil','khalil@lehrway.ch','hash1',NULL),
 (2,'noel','noel@lehrway.ch','hash2',NULL),
-(3,'hello_world','hello_world@gmail.com','$2b$10$itkjPoORnl2YOblzuYmEE.ZTg2GPlxE8aEOmXpE7l1aJD/UGwrhUa','2026-11-04 10:28:50');
+(3,'hello_world','hello_world@gmail.com','$2b$10$itkjPoORnl2YOblzuYmEE.ZTg2GPlxE8aEOmXpE7l1aJD/UGwrhUa','2026-11-04 10:28:50'),
+(4,'lol','lol@lol.lol','$2b$10$iYKMzib97brBNJQXzAafAOL5tJKWeWWWpCgxxTpz.sFKXFvdWTNci','2026-11-11 09:51:01');
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 UNLOCK TABLES;
 COMMIT;
@@ -455,4 +452,4 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
--- Dump completed on 2026-11-04 11:38:25
+-- Dump completed on 2026-11-18  9:35:07
